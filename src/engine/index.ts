@@ -1,0 +1,1 @@
+// return the current opencode bin based on the current platfor
