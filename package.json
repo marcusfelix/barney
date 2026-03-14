@@ -3,14 +3,26 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "barney": "index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/utils/prompts-manifest.ts && bun run src/index.ts",
+    "prebuild": "bun run src/engine/bundle-prompts.ts",
+    "build": "bun build ./src/index.ts --compile --outfile barney",
+    "install": "bun run src/index.ts"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/react": "^19.2.14"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
     "ink": "^6.8.0",
+    "ink-scroll-view": "^0.3.6",
+    "ink-text-input": "^6.0.0",
     "react": "^19.2.4"
   }
 }

@@ -1,1 +1,8 @@
-// call bash commands and opencode cli. see utils/bash.ts
+import { $ } from "bun";
+
+export function useExec() {
+  const run = async (cmd: string[]) => {
+    return await $`${cmd}`.text();
+  };
+  return { run };
+}

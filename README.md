@@ -1,15 +1,47 @@
-# barney
+# Barney 🦖
 
-To install dependencies:
+A smart, minimalistic AI CLI assistant built with Bun and OpenCode.
+
+## Features
+
+- **Headless OpenCode Integration**: Transparent AI assistance directly from
+  your terminal.
+- **TUI (Terminal User Interface)**: Real-time logs, tasks, and an interactive
+  prompt powered by Ink.
+- **Multi-mode Operation**:
+  - `ghost`: Passive monitoring.
+  - `coworker`: Watches your changes and offers insights.
+  - `auto`: Independently works on tasks defined in `.context/tasks/*.md`.
+- **Role-based Persona**: Focused as a `developer` (expandable).
+
+## Installation
 
 ```bash
 bun install
 ```
 
-To run:
+## Usage
+
+### Development
 
 ```bash
-bun run index.ts
+bun dev
 ```
 
-This project was created using `bun init` in bun v1.3.9. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+### Build Binary
+
+```bash
+bun build
+```
+
+## Structure
+
+- `.barney/`: Local configuration and OpenCode settings.
+- `.context/tasks/`: Markdown files defining tasks for `auto` mode.
+- `src/`: Core logic, TUI, and engine components.
+
+## Dependencies
+
+- [Bun](https://bun.sh)
+- [Ink](https://github.com/vadimdemedes/ink)
+- [OpenCode AI](https://opencode.ai)
