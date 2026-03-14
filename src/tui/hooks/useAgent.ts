@@ -10,7 +10,7 @@
 // - role (default: developer): developer, reviewer (this set the system prompt and skills. see roles folder)
 // - status (default: idle): working, idle (based on opencode activity)
 
-// when mode and role is changed, opencode.json should be updated and opencode should be rebooted. see: utils/opencode.ts
+// when mode and role is changed, .barney/opencode.json should be overwritten and opencode should be rebooted. see: utils/opencode.ts
 // opencode.json example:
 // {
 //   "$schema": "https://opencode.ai/config.json",

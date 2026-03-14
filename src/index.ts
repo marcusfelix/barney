@@ -7,5 +7,5 @@
 //   - opencode.json
 // - if .barney exists. use ir
 // = add .barney to .gitignore if not exists
-// create /tasks folder if not exists
+// create .context/tasks folder if not exists
 // - start TUI 
