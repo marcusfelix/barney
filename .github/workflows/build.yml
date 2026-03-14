@@ -1,0 +1,44 @@
+name: Build Binaries
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    name: Build for ${{ matrix.output }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: bun-linux-x64
+            output: barney-linux-x64
+          - target: bun-darwin-x64
+            output: barney-macos-x64
+          - target: bun-darwin-arm64
+            output: barney-macos-arm64
+          - target: bun-windows-x64
+            output: barney-windows-x64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Bundle prompts
+        run: bun run scripts/bundle-prompts.ts
+
+      - name: Build binary
+        run: bun build ./src/index.ts --compile --target=${{ matrix.target }} --outfile ${{ matrix.output }}
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.output }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
