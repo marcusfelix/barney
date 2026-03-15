@@ -12,11 +12,11 @@ import { runTask } from "../utils/opencode";
 import { readFileSync, readdirSync } from "node:fs";
 import { useWindow } from "./hooks/useWindow";
 
-export const BarneyTUI = () => {
-  const { mode, setMode, role, setRole, status, setStatus, logs, addLog } = useAgent();
+export const BarneyTUI = ({ fullscreen = false }: { fullscreen?: boolean }) => {
+  const { mode, setMode, role, setRole, status, setStatus, logs, addLog, theme, setTheme } = useAgent();
   const [tasks, setTasks] = useState<Task[]>([]);
   const { rows, cols } = useWindow();
-  const { handleCommand } = useCommands({ setMode, setRole, addLog });
+  const { handleCommand } = useCommands({ setMode, setRole, setTheme, addLog });
 
   const loadTasks = useCallback(() => {
     ensureDir(".context/tasks");
@@ -73,22 +73,22 @@ export const BarneyTUI = () => {
   };
 
   return (
-    <Box flexDirection="column" height={rows} paddingTop={1}>
+    <Box flexDirection="column" height={fullscreen ? rows : undefined} minHeight={fullscreen ? rows : 20} paddingTop={1} backgroundColor={theme === "dark" ? "#000000" : undefined}>
       <Box flexGrow={1} paddingBottom={1}>
-        <Logs logs={logs} />
-        {cols > 100 && <Tasks tasks={tasks} />}
+        <Logs logs={logs} theme={theme} />
+        {cols > 100 && <Tasks tasks={tasks} theme={theme} />}
       </Box>
-      <Box padding={1} justifyContent="space-between">
-        <Text color="#999">Mode: {mode} • Role: {role} • Status: {status}</Text>
+      <Box paddingX={1} justifyContent="space-between">
+        <Text color="#999">Mode: {mode} • Role: {role} • Status: {status} • Theme: {theme}</Text>
       </Box>
-      <Prompt onSubmit={handleSubmit} />
+      <Prompt onSubmit={handleSubmit} theme={theme} />
     </Box>
   );
 };
 
-export const startTUI = async () => {
-  process.stdout.write("\x1b[?1049h");
-  const {waitUntilExit} = render(<BarneyTUI />);
+export const startTUI = async (fullScreen: boolean = false) => {
+  if (fullScreen) process.stdout.write("\x1b[?1049h");
+  const {waitUntilExit} = render(<BarneyTUI fullscreen={fullScreen} />);
   await waitUntilExit();
-  process.stdout.write("\x1b[?1049l");
+  if (fullScreen) process.stdout.write("\x1b[?1049l");
 }
