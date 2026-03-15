@@ -1,4 +1,3 @@
-import React from "react";
 import { Box, Text } from "ink";
 import { ScrollView } from "ink-scroll-view";
 
@@ -13,8 +12,10 @@ export const Tasks = ({ tasks }: { tasks: Task[] }) => (
     <ScrollView>
       {tasks.map((task, i) => (
         <Box key={i} flexDirection="row" gap={1}>
-          <Text color={task.status === "done" ? "gray" : task.status === "in-progress" ? "yellow" : "white"}>•</Text>
-          <Text>{task.name}</Text>
+          <Box flexShrink={0} width={1}>
+            <Text color={task.status === "done" ? "gray" : task.status === "in-progress" ? "yellow" : "white"}>•</Text>
+          </Box>
+          <Text wrap="truncate-end">{task.name}</Text>
         </Box>
       ))}
     </ScrollView>
