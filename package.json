@@ -7,8 +7,8 @@
     "barney": "index.ts"
   },
   "scripts": {
-    "dev": "bun run src/utils/prompts-manifest.ts && bun run src/index.ts",
-    "prebuild": "bun run src/engine/bundle-prompts.ts",
+    "dev": "bun run src/index.ts",
+    "prebuild": "bun run scripts/bundle-prompts.ts",
     "build": "bun build ./src/index.ts --compile --outfile barney",
     "install": "bun run src/index.ts"
   },
