@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - "web/**"
-      - ".github/workflows/deploy-web.yml"
+      - ".github/workflows/deploy.yml"
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
@@ -32,6 +32,8 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
+        with:
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
