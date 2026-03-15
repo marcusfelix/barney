@@ -2,8 +2,9 @@ import React, { useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { useWindow } from "../hooks/useWindow";
+import { Theme } from "../hooks/useAgent";
 
-export const Logs = ({ logs }: { logs: string[] }) => {
+export const Logs = ({ logs, theme }: { logs: string[], theme: Theme }) => {
   const handleResize = () => scrollRef.current?.remeasure();
 
   const _ = useWindow(handleResize);
@@ -30,7 +31,7 @@ export const Logs = ({ logs }: { logs: string[] }) => {
     <Box flexDirection="column" flexGrow={1}>
       <ScrollView ref={scrollRef}>
         {logs.map((log, i) => (
-          <Text key={i}>{log}</Text>
+          <Text key={i} color={theme === "dark" ? "#FFFFFF" : "#000000"}>{log}</Text>
         ))}
       </ScrollView>
     </Box>

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import TextInput from 'ink-text-input';
+import { Theme } from "../hooks/useAgent";
 
-export const Prompt = ({ onSubmit }: { onSubmit: (value: string) => void }) => {
+export const Prompt = ({ onSubmit, theme }: { onSubmit: (value: string) => void, theme: Theme }) => {
   const [value, setValue] = useState("");
 
   useInput((input, key) => {
@@ -12,10 +13,16 @@ export const Prompt = ({ onSubmit }: { onSubmit: (value: string) => void }) => {
     } 
   });
 
+  const bgColor = theme === "dark" ? "#1E1E1E" : "#D3D3D3";
+  const promptColor = theme === "dark" ? "#808080" : "#999999";
+  const textColor = theme === "dark" ? "#FFFFFF" : "#000000";
+
   return (
-    <Box backgroundColor="#D3D3D3" padding={1} width="100%">
-      <Text color="#999999">{"> "}</Text>
-      <TextInput value={value} onChange={setValue} />
+    <Box backgroundColor={bgColor} padding={1} width="100%">
+      <Text color={promptColor}>{"> "}</Text>
+      <Box flexGrow={1}>
+        <TextInput value={value} onChange={setValue} color={textColor} />
+      </Box>
     </Box>
   );
 };

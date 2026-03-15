@@ -5,11 +5,13 @@ import { dino } from "../components/dino";
 export type Mode = "coworker" | "auto" | "ghost";
 export type Role = "developer";
 export type Status = "working" | "idle";
+export type Theme = "light" | "dark";
 
 export function useAgent() {
   const [mode, setMode] = useState<Mode>("ghost");
   const [role, setRole] = useState<Role>("developer");
   const [status, setStatus] = useState<Status>("idle");
+  const [theme, setTheme] = useState<Theme>("light");
   const [logs, setLogs] = useState<string[]>([dino, "barney v0.0.1"]);
 
   const addLog = useCallback((log: string) => {
@@ -27,5 +29,5 @@ export function useAgent() {
     applyConfig();
   }, [mode, role, addLog]);
 
-  return { mode, setMode, role, setRole, status, setStatus, logs, addLog };
+  return { mode, setMode, role, setRole, status, setStatus, logs, addLog, theme, setTheme };
 }
