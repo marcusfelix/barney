@@ -74,14 +74,14 @@ export const BarneyTUI = () => {
 
   return (
     <Box flexDirection="column" height={rows} paddingTop={1}>
-      <Box flexGrow={1}>
+      <Box flexGrow={1} paddingBottom={1}>
         <Logs logs={logs} />
         {cols > 100 && <Tasks tasks={tasks} />}
       </Box>
-      <Prompt onSubmit={handleSubmit} />
       <Box padding={1} justifyContent="space-between">
         <Text color="#999">Mode: {mode} • Role: {role} • Status: {status}</Text>
       </Box>
+      <Prompt onSubmit={handleSubmit} />
     </Box>
   );
 };
