@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { updateConfig, reboot } from "../../utils/opencode";
+import { dino } from "../components/dino";
 
 export type Mode = "coworker" | "auto" | "ghost";
 export type Role = "developer";
@@ -9,7 +10,7 @@ export function useAgent() {
   const [mode, setMode] = useState<Mode>("ghost");
   const [role, setRole] = useState<Role>("developer");
   const [status, setStatus] = useState<Status>("idle");
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<string[]>([dino, "barney v0.0.1"]);
 
   const addLog = useCallback((log: string) => {
     setLogs(prev => [...prev.slice(-50), log]);

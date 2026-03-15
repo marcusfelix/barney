@@ -1,4 +1,8 @@
 {
   "name": "developer",
-  "skills": ["frontend-design"]
+  "skills": [
+    "frontend-design",
+    "web-artifacts-builder",
+    "site-architecture"
+  ]
 }

@@ -3,23 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Barney — Your CLI Coding Assistant</title>
+  <title>Barney - AI CLI Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --dracula-bg: #282a36;
-      --dracula-current-line: #44475a;
-      --dracula-foreground: #f8f8f2;
-      --dracula-comment: #6272a4;
-      --dracula-pink: #ff79c6;
-      --dracula-purple: #bd93f9;
-      --dracula-green: #50fa7b;
-      --dracula-orange: #ffb86c;
-      --dracula-red: #ff5555;
-      --dracula-cyan: #8be9fd;
-      --dracula-yellow: #f1fa8c;
+      --bg-primary: #0d0d0d;
+      --bg-secondary: #1a1a1a;
+      --bg-tertiary: #252525;
+      --text-primary: #f8f8f2;
+      --text-secondary: #a0a0a0;
+      --text-muted: #666666;
+      --accent-pink: #ff79c6;
+      --accent-purple: #bd93f9;
+      --accent-green: #50fa7b;
+      --accent-orange: #ffb86c;
+      --accent-red: #ff5555;
+      --accent-cyan: #8be9fd;
+      --border-color: #333333;
     }
 
     * {
@@ -29,334 +31,418 @@
     }
 
     body {
-      font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
-      background: var(--dracula-bg);
-      color: var(--dracula-foreground);
+      font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.7;
       min-height: 100vh;
-      line-height: 1.6;
-      font-size: 14px;
     }
 
-    .terminal {
-      max-width: 680px;
+    .container {
+      max-width: 800px;
       margin: 0 auto;
-      padding: 2rem 1rem;
+      padding: 4rem 2rem;
     }
 
     header {
+      margin-bottom: 4rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 2rem;
+    }
+
+    .ascii-art {
+      font-size: 0.65rem;
+      line-height: 1.1;
+      color: var(--accent-green);
+      white-space: pre;
       margin-bottom: 2rem;
-    }
-
-    .title-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 1.5rem;
-      padding: 0.75rem 1rem;
-      background: var(--dracula-current-line);
-      border-radius: 8px 8px 0 0;
-      border-bottom: 1px solid var(--dracula-comment);
-    }
-
-    .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-    }
-
-    .dot.red { background: var(--dracula-red); }
-    .dot.yellow { background: var(--dracula-orange); }
-    .dot.green { background: var(--dracula-green); }
-
-    .title {
-      flex: 1;
-      text-align: center;
-      font-size: 0.75rem;
-      color: var(--dracula-comment);
-    }
-
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .logo-icon {
-      font-size: 2.5rem;
-      filter: drop-shadow(0 0 8px var(--dracula-purple));
-    }
-
-    .logo-text {
-      font-size: 2rem;
-      font-weight: 700;
-      color: var(--dracula-purple);
-      letter-spacing: -0.02em;
-    }
-
-    .logo-text .dino {
-      color: var(--dracula-green);
+      overflow-x: auto;
     }
 
     .tagline {
-      color: var(--dracula-comment);
-      font-size: 0.875rem;
+      color: var(--accent-cyan);
+      font-size: 0.9rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
     }
 
-    .section {
-      background: var(--dracula-current-line);
-      border-radius: 8px;
-      padding: 1.25rem;
-      margin-bottom: 1rem;
-      border: 1px solid var(--dracula-comment);
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin: 1rem 0;
+      background: linear-gradient(90deg, var(--accent-pink), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
 
-    .section-title {
+    h2 {
+      font-size: 1.2rem;
+      color: var(--accent-orange);
+      margin: 2rem 0 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    p {
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+    }
+
+    .description {
+      border-left: 3px solid var(--accent-purple);
+      padding-left: 1.5rem;
+      margin: 2rem 0;
+    }
+
+    .code-block {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      overflow-x: auto;
+    }
+
+    .code-block code {
+      color: var(--accent-green);
+    }
+
+    .comment {
+      color: var(--text-muted);
+    }
+
+    .keyword {
+      color: var(--accent-pink);
+    }
+
+    .string {
+      color: var(--accent-orange);
+    }
+
+    .feature-list {
+      list-style: none;
+      margin: 1.5rem 0;
+    }
+
+    .feature-list li {
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .feature-list li::before {
+      content: '>';
+      color: var(--accent-green);
+      font-weight: bold;
+    }
+
+    .mode-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .mode-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .mode-card:hover {
+      border-color: var(--accent-purple);
+      transform: translateY(-2px);
+    }
+
+    .mode-name {
+      color: var(--accent-pink);
+      font-weight: 700;
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .mode-desc {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .platforms {
+      display: flex;
+      gap: 1.5rem;
+      margin: 2rem 0;
+      flex-wrap: wrap;
+    }
+
+    .platform-link {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      transition: all 0.2s;
+      font-size: 0.85rem;
+    }
+
+    .platform-link:hover {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    .platform-icon {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .download-card {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      text-decoration: none;
+      color: var(--text-primary);
+      transition: all 0.2s;
+    }
+
+    .download-card:hover {
+      border-color: var(--accent-green);
+      background: var(--bg-tertiary);
+      transform: translateY(-2px);
+    }
+
+    .download-icon {
+      font-size: 1.2rem;
+      color: var(--accent-green);
+      font-weight: 700;
+    }
+
+    .download-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .download-name {
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    .download-arch {
       font-size: 0.75rem;
-      color: var(--dracula-cyan);
+      color: var(--text-muted);
+    }
+
+    .version-note {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+
+    .cta {
+      display: inline-block;
+      margin-top: 1rem;
+      padding: 1rem 2rem;
+      background: var(--accent-purple);
+      color: var(--bg-primary);
+      text-decoration: none;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      margin-bottom: 0.75rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
+      transition: all 0.2s;
     }
 
-    .section-title::before {
-      content: '>';
-      color: var(--dracula-green);
+    .cta:hover {
+      background: var(--accent-pink);
+      transform: translateY(-2px);
     }
 
-    .install-cmd {
-      background: var(--dracula-bg);
-      padding: 1rem;
-      border-radius: 6px;
-      overflow-x: auto;
-      white-space: nowrap;
-      border-left: 3px solid var(--dracula-green);
+    footer {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border-color);
+      color: var(--text-muted);
+      font-size: 0.8rem;
     }
 
-    .install-cmd .prompt {
-      color: var(--dracula-green);
-    }
-
-    .install-cmd .cmd {
-      color: var(--dracula-foreground);
-    }
-
-    .downloads {
-      display: grid;
-      gap: 0.5rem;
-    }
-
-    .download-btn {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.875rem 1rem;
-      background: var(--dracula-bg);
-      border: 1px solid var(--dracula-comment);
-      border-radius: 6px;
-      text-decoration: none;
-      color: var(--dracula-foreground);
-      transition: all 0.15s ease;
-    }
-
-    .download-btn:hover {
-      border-color: var(--dracula-purple);
-      background: rgba(189, 147, 249, 0.1);
-      transform: translateX(4px);
-    }
-
-    .download-btn .platform {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .download-btn .icon {
-      font-size: 1.25rem;
-    }
-
-    .download-btn .name {
-      color: var(--dracula-cyan);
-    }
-
-    .download-btn .arch {
-      color: var(--dracula-comment);
-      font-size: 0.75rem;
-    }
-
-    .download-btn .arrow {
-      color: var(--dracula-green);
-      font-size: 1rem;
-      transition: transform 0.15s ease;
-    }
-
-    .download-btn:hover .arrow {
-      transform: translateX(4px);
-    }
-
-    .features {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 0.5rem;
-    }
-
-    .feature {
-      padding: 0.75rem;
-      background: var(--dracula-bg);
-      border-radius: 6px;
-      border-left: 3px solid var(--dracula-pink);
-    }
-
-    .feature h3 {
-      font-size: 0.75rem;
-      color: var(--dracula-pink);
-      margin-bottom: 0.25rem;
-    }
-
-    .feature p {
-      font-size: 0.7rem;
-      color: var(--dracula-comment);
-    }
-
-    .footer {
-      text-align: center;
-      color: var(--dracula-comment);
-      font-size: 0.75rem;
-      margin-top: 1.5rem;
-      padding-top: 1rem;
-      border-top: 1px solid var(--dracula-current-line);
-    }
-
-    .footer a {
-      color: var(--dracula-purple);
+    footer a {
+      color: var(--accent-cyan);
       text-decoration: none;
     }
 
-    .footer a:hover {
+    footer a:hover {
       text-decoration: underline;
     }
 
-    .status-bar {
-      display: flex;
-      justify-content: space-between;
-      padding: 0.5rem 1rem;
-      background: var(--dracula-purple);
-      color: var(--dracula-bg);
-      font-size: 0.7rem;
-      font-weight: 600;
-      border-radius: 0 0 8px 8px;
-      margin-bottom: 1.5rem;
+    .terminal-prompt {
+      color: var(--accent-green);
     }
 
-    .status-bar span {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-    }
-
-    @media (max-width: 480px) {
-      .features {
-        grid-template-columns: 1fr;
+    @media (max-width: 600px) {
+      .container {
+        padding: 2rem 1rem;
       }
 
-      .terminal {
-        padding: 1rem 0.5rem;
+      h1 {
+        font-size: 1.8rem;
       }
 
-      .install-cmd {
-        font-size: 0.7rem;
+      .ascii-art {
+        font-size: 0.5rem;
       }
     }
   </style>
 </head>
 <body>
-  <div class="terminal">
+  <div class="container">
     <header>
-      <div class="title-bar">
-        <span class="dot red"></span>
-        <span class="dot yellow"></span>
-        <span class="dot green"></span>
-        <span class="title">barney — zsh</span>
-      </div>
-      <div class="status-bar">
-        <span>main*</span>
-        <span>U 0 ↓ 0 ↑</span>
-      </div>
-      <div class="logo">
-        <span class="logo-icon">🦖</span>
-        <span class="logo-text">barney<span class="dino">.cli</span></span>
-      </div>
-      <p class="tagline">Your autonomous coding assistant in the terminal</p>
+<pre class="ascii-art">
+    ■■■■■■
+    ■□■■■■
+    ■■■■■■
+■   ■■■■
+■■  ■■■■■
+■■■■■■
+  ■■■■■
+   ■  ■
+     </pre>
+      <div class="tagline">// Prehistoric AI Assistant</div>
+      <h1>Barney</h1>
     </header>
 
-    <section class="section">
-      <div class="section-title">Quick Install</div>
-      <div class="install-cmd">
-        <span class="prompt">$</span> <span class="cmd">curl -fsSL https://github.com/anomalyco/barney/releases/latest/download/barney-macos-arm64 -o barney && chmod +x barney</span>
-      </div>
+    <section class="description">
+      <p>
+        Once upon a time, in the age of terminals and command lines, a new species 
+        emerged from the primordial code. Barney is an intelligent CLI companion that 
+        evolved alongside OpenCode, learning to assist developers in the wild.
+      </p>
+      <p>
+        Extracted from ancient amber and rebuilt with Bun, this paleontologist of 
+        productivity digs through your code to unearth bugs, discovers patterns 
+        in the fossil record of your git history, and brings your development 
+        workflow back from extinction.
+      </p>
     </section>
 
-    <section class="section">
-      <div class="section-title">Download Binary</div>
-      <div class="downloads">
-        <a href="https://github.com/anomalyco/barney/releases/latest/download/barney-macos-arm64" class="download-btn" target="_blank" rel="noopener">
-          <span class="platform">
-            <span class="icon">🍏</span>
-            <span><span class="name">macOS</span> <span class="arch">ARM64</span></span>
-          </span>
-          <span class="arrow">→</span>
-        </a>
-        <a href="https://github.com/anomalyco/barney/releases/latest/download/barney-macos-x64" class="download-btn" target="_blank" rel="noopener">
-          <span class="platform">
-            <span class="icon">🍎</span>
-            <span><span class="name">macOS</span> <span class="arch">x64</span></span>
-          </span>
-          <span class="arrow">→</span>
-        </a>
-        <a href="https://github.com/anomalyco/barney/releases/latest/download/barney-linux-x64" class="download-btn" target="_blank" rel="noopener">
-          <span class="platform">
-            <span class="icon">🐧</span>
-            <span><span class="name">Linux</span> <span class="arch">x64</span></span>
-          </span>
-          <span class="arrow">→</span>
-        </a>
-        <a href="https://github.com/anomalyco/barney/releases/latest/download/barney-windows-x64.exe" class="download-btn" target="_blank" rel="noopener">
-          <span class="platform">
-            <span class="icon">🪟</span>
-            <span><span class="name">Windows</span> <span class="arch">x64</span></span>
-          </span>
-          <span class="arrow">→</span>
-        </a>
-      </div>
+    <section>
+      <h2>// Capabilities</h2>
+      <ul class="feature-list">
+        <li>Headless OpenCode integration for seamless AI assistance</li>
+        <li>Real-time TUI with live logs and interactive prompts</li>
+        <li>Monitors your workspace like a dinosaur watching for prey</li>
+        <li>Works autonomously on tasks defined in .context/tasks/*.md</li>
+        <li>Role-based persona system (developer, and more to fossilize)</li>
+      </ul>
     </section>
 
-    <section class="section">
-      <div class="section-title">Features</div>
-      <div class="features">
-        <div class="feature">
-          <h3>// auto mode</h3>
-          <p>Works on your tasks autonomously while you relax</p>
+    <section>
+      <h2>// Operation Modes</h2>
+      <div class="mode-list">
+        <div class="mode-card">
+          <div class="mode-name">ghost</div>
+          <div class="mode-desc">Passive monitoring. Stands still like a statue in amber.</div>
         </div>
-        <div class="feature">
-          <h3>// multi-mode</h3>
-          <p>ghost, coworker, or auto — pick your workflow</p>
+        <div class="mode-card">
+          <div class="mode-name">coworker</div>
+          <div class="mode-desc">Watches changes, offers insights. Like a helpful pack member.</div>
         </div>
-        <div class="feature">
-          <h3>// tui built-in</h3>
-          <p>Real-time logs & interactive prompts</p>
-        </div>
-        <div class="feature">
-          <h3>// headless</h3>
-          <p>OpenCode right in your terminal</p>
+        <div class="mode-card">
+          <div class="mode-name">auto</div>
+          <div class="mode-desc">Autonomous task execution. Hunts down todos relentlessly.</div>
         </div>
       </div>
     </section>
 
-    <footer class="footer">
-      <p>Built with <a href="#">Bun</a> + <a href="#">OpenCode</a></p>
+    <section>
+      <h2>// Downloads</h2>
+      <p>Grab the binary for your platform from the latest release.</p>
+      <div class="download-grid">
+        <a href="https://github.com/anomalyco/opencode/releases/latest/download/barney-linux-x64" class="download-card" target="_blank">
+          <div class="download-icon">[L]</div>
+          <div class="download-info">
+            <div class="download-name">Linux</div>
+            <div class="download-arch">x86_64</div>
+          </div>
+        </a>
+        <a href="https://github.com/anomalyco/opencode/releases/latest/download/barney-macos-x64" class="download-card" target="_blank">
+          <div class="download-icon">[M]</div>
+          <div class="download-info">
+            <div class="download-name">macOS</div>
+            <div class="download-arch">x86_64</div>
+          </div>
+        </a>
+        <a href="https://github.com/anomalyco/opencode/releases/latest/download/barney-macos-arm64" class="download-card" target="_blank">
+          <div class="download-icon">[M]</div>
+          <div class="download-info">
+            <div class="download-name">macOS</div>
+            <div class="download-arch">ARM64</div>
+          </div>
+        </a>
+        <a href="https://github.com/anomalyco/opencode/releases/latest/download/barney-windows-x64.exe" class="download-card" target="_blank">
+          <div class="download-icon">[W]</div>
+          <div class="download-info">
+            <div class="download-name">Windows</div>
+            <div class="download-arch">x86_64</div>
+          </div>
+        </a>
+      </div>
+      <p class="version-note">Version: latest</p>
+    </section>
+
+    <section>
+      <h2>// Get Started</h2>
+      <div class="code-block">
+        <code><span class="comment"># Dig up Barney from the fossil record</span><br>
+<span class="keyword">bun</span> install<br><br>
+<span class="comment"># Awaken the prehistoric assistant</span><br>
+<span class="keyword">bun</span> dev
+        </code>
+      </div>
+      <a href="https://github.com/anomalyco/opencode" class="cta">Join The Expedition</a>
+    </section>
+
+    <section>
+      <h2>// Discover More</h2>
+      <div class="platforms">
+        <a href="https://github.com/anomalyco/opencode" class="platform-link" target="_blank">
+          <span class="platform-icon">[G]</span>
+          GitHub
+        </a>
+        <a href="https://opencode.ai" class="platform-link" target="_blank">
+          <span class="platform-icon">[O]</span>
+          OpenCode
+        </a>
+        <a href="https://bun.sh" class="platform-link" target="_blank">
+          <span class="platform-icon">[B]</span>
+          Bun
+        </a>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        <span class="terminal-prompt">$</span> echo "Roarrr! Happy coding!"
+      </p>
+      <p>
+        Built with extinct technology and modern vibes. 
+        <a href="https://github.com/anomalyco/opencode">Contribute</a> to prevent another extinction event.
+      </p>
     </footer>
   </div>
 </body>

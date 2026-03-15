@@ -1,1 +1,8 @@
-{ "name": "reviewer", "skills": [] }
+{
+  "name": "reviewer",
+  "skills": [
+    "code-review",
+    "webapp-testing",
+    "seo-audit"
+  ]
+}
