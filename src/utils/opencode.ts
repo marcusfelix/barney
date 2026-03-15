@@ -87,9 +87,9 @@ export async function updateConfig(role: string, mode: string, skills?: string[]
     };
     
     writeFileSync(join(root, CONFIG_PATH), JSON.stringify(config, null, 2));
-    return `Configured: ${role}/${mode} with ${instructions.length - 2} skills`;
+    return `[barney] i'm ${role}/${mode} with ${instructions.length - 2} skills`;
   } catch (e: any) {
-    return `Config Error: ${e.message}`;
+    return `[barney] i'm lost ${e.message}`;
   }
 }
 
@@ -101,8 +101,8 @@ export async function reboot() {
     const bin = await getOpenCodeBin();
     const configPath = join(process.cwd(), CONFIG_PATH);
     await $`OPENCODE_CONFIG=${configPath} ${bin} --version`.quiet();
-    return "Ready.";
+    return "[barney] ready to rawrk";
   } catch (e: any) {
-    return `Reload Error: ${e.message}`;
+    return `[barney] i'm lost ${e.message}`;
   }
 }

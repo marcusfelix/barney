@@ -65,7 +65,7 @@ export const BarneyTUI = ({ fullscreen = false }: { fullscreen?: boolean }) => {
     if (!value.trim()) return;
     if (handleCommand(value)) return;
     
-    addLog(`Running: ${value}`);
+    addLog(`[barney] running: ${value}`);
     setStatus("working");
     const output = await runTask(value);
     addLog(output);
@@ -78,8 +78,8 @@ export const BarneyTUI = ({ fullscreen = false }: { fullscreen?: boolean }) => {
         <Logs logs={logs} theme={theme} />
         {cols > 100 && <Tasks tasks={tasks} theme={theme} />}
       </Box>
-      <Box paddingX={1} justifyContent="space-between">
-        <Text color="#999">Mode: {mode} • Role: {role} • Status: {status} • Theme: {theme}</Text>
+      <Box paddingY={1} justifyContent="space-between">
+        <Text color="#999">Barney feels like a {role} and its running on {mode} mode • {status}</Text>
       </Box>
       <Prompt onSubmit={handleSubmit} theme={theme} />
     </Box>

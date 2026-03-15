@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import TextInput from 'ink-text-input';
-import { Theme } from "../hooks/useAgent";
+import type { Theme } from "../hooks/useAgent";
 
 export const Prompt = ({ onSubmit, theme }: { onSubmit: (value: string) => void, theme: Theme }) => {
   const [value, setValue] = useState("");
@@ -21,7 +21,7 @@ export const Prompt = ({ onSubmit, theme }: { onSubmit: (value: string) => void,
     <Box backgroundColor={bgColor} padding={1} width="100%">
       <Text color={promptColor}>{"> "}</Text>
       <Box flexGrow={1}>
-        <TextInput value={value} onChange={setValue} color={textColor} />
+        <TextInput value={value} onChange={setValue}/>
       </Box>
     </Box>
   );

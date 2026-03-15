@@ -20,7 +20,7 @@ export function useAgent() {
 
   useEffect(() => {
     const applyConfig = async () => {
-      addLog(`Applying mode: ${mode}, role: ${role}...`);
+      addLog(`[barney] i'm learning how to be a ${role} and ${mode} now`);
       const updateMsg = await updateConfig(role, mode);
       addLog(updateMsg);
       const rebootMsg = await reboot();

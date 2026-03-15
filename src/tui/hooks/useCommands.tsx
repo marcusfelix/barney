@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Mode, Role, Theme } from "./useAgent";
+import type { Mode, Role, Theme } from "./useAgent";
 
 interface UseCommandsProps {
   setMode: (mode: Mode) => void;
@@ -13,48 +13,48 @@ export function useCommands({ setMode, setRole, setTheme, addLog }: UseCommandsP
     if (value.startsWith("/mode")) {
       const parts = value.split(" ");
       if (parts.length < 2) {
-        addLog("Error: Missing mode. Usage: /mode <ghost|coworker|auto>");
+        addLog("[barney] this soul is lost");
         return true;
       }
       const m = parts[1] as Mode;
       if (!["ghost", "coworker", "auto"].includes(m)) {
-        addLog(`Error: Invalid mode '${m}'. Valid: ghost, coworker, auto`);
+        addLog(`[barney] this soul is lost`);
         return true;
       }
       setMode(m);
-      addLog(`Mode command received: ${m}`);
+      addLog(`[barney] i'm ${m} now`);
       return true;
     }
 
     if (value.startsWith("/role")) {
       const parts = value.split(" ");
       if (parts.length < 2) {
-        addLog("Error: Missing role. Usage: /role <developer>");
+        addLog("[barney] this soul is lost");
         return true;
       }
       const r = parts[1] as Role;
       if (!["developer"].includes(r)) {
-        addLog(`Error: Invalid role '${r}'. Valid: developer`);
+        addLog(`[barney] this soul is lost`);
         return true;
       }
       setRole(r);
-      addLog(`Role command received: ${r}`);
+      addLog(`[barney] i'm ${r} now`);
       return true;
     }
 
     if (value.startsWith("/theme")) {
       const parts = value.split(" ");
       if (parts.length < 2) {
-        addLog("Error: Missing theme. Usage: /theme <light|dark>");
+        addLog("[barney] this googles are dark");
         return true;
       }
       const t = parts[1] as Theme;
       if (!["light", "dark"].includes(t)) {
-        addLog(`Error: Invalid theme '${t}'. Valid: light, dark`);
+        addLog(`[barney] this googles are dark`);
         return true;
       }
       setTheme(t);
-      addLog(`Theme command received: ${t}`);
+      addLog(`[barney] i can see all ${t} now and the rain is gone`);
       return true;
     }
 
