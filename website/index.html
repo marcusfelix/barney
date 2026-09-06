@@ -20,6 +20,7 @@
   --dim: #5a5a5a;
   --pink: #ff79c6;
   --purple: #bd93f9;
+  --green: #50fa7b;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -44,7 +45,7 @@ body {
   overflow-x: hidden;
 }
 
-::selection { background: var(--pink); color: var(--bg); }
+::selection { background: var(--green); color: var(--bg); }
 
 a { color: var(--white); text-decoration: none; }
 a:hover { text-decoration: none; }
@@ -253,7 +254,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
 <nav>
   <div class="wrap">
 <pre class="ascii">
-_                                 
+ _                                 
 | |__   __ _ _ __ _ __   ___ _   _ 
 | '_ \ / _` | '__| '_ \ / _ \ | | |
 | |_) | (_| | |  | | | |  __/ |_| |
@@ -267,7 +268,7 @@ _
 <header class="wrap hero">
   <div>
     <img class="mascot" src="assets/barney.jpg" alt="Barney, a purple T-Rex roaring YOLO in a neon city">
-    <h1>He ate the backlog</h1>
+    <h1>He ate the backlog!</h1>
     <p class="sub">
       <b>Tame a self-hosted code dinosaur</b> that never sleeps: label an issue, drop a
       <b>/barney</b> comment, push to main — it wakes up, does the work, and drags back a
@@ -282,7 +283,7 @@ _
   <div class="term">
     <div class="term-bar">
       <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
-      <span class="title">barney — 80x24 — dino-cam</span>
+      <span class="title">barney — 80x24 — tar-pit-cam</span>
     </div>
     <div class="term-body" id="term"></div>
   </div>
@@ -485,12 +486,12 @@ _
       <div class="code-bar"><span>❯ terminal</span><button class="copy" data-copy="qs-code">copy ⎘</button></div>
 <pre id="qs-code"><span class="y-c"># 1 · wake the dinosaur (published on every release)</span>
 mkdir barney && cd barney
-curl -O https://raw.githubusercontent.com/deploid/barney/main/.env.example
+curl -O https://raw.githubusercontent.com/marcusfelix/barney/main/.env.example
 cp .env.example .env   <span class="y-c"># add WEBHOOK_SECRET, GITHUB_TOKEN, agent key</span>
 docker run -d --name barney --env-file .env \
   -p 8080:8080 \
   -v barney-workspaces:/var/lib/barney/workspaces \
-  ghcr.io/deploid/barney:latest
+  ghcr.io/marcusfelix/barney:latest
 
 <span class="y-c"># 2 · feed it webhooks (or add one in repo settings)</span>
 gh webhook forward --repo=you/your-repo \
@@ -519,8 +520,8 @@ git add .barney/manifest.yaml && git commit -m "barney: awaken" && git push
     <span><img src="assets/barney.jpg" alt="" style="height: 24px; vertical-align: -6px;"> barney <span class="status">● v0</span></span>
     <span>— 459 million years of evolution led to this</span>
     <div class="right">
-      <a href="https://github.com/deploid/barney">source ⌥</a>
-      <a href="https://github.com/deploid/barney/issues">issues ⌥</a>
+      <a href="https://github.com/marcusfelix/barney">source ⌥</a>
+      <a href="https://github.com/marcusfelix/barney/issues">issues ⌥</a>
     </div>
   </div>
 </footer>
