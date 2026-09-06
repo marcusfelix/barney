@@ -1,5 +1,7 @@
 // Package workspace manages on-demand git repository workspaces with
-// per-repository locking to serialize concurrent git operations.
+// per-repository locking to serialize concurrent git operations. It only
+// prepares the workspace — commits, pushes, and pull requests are the
+// agent's job.
 package workspace
 
 import (
@@ -33,8 +35,6 @@ type Event struct {
 // Manager provisions and locks repository workspaces under a root directory.
 type Manager struct {
 	Root string
-	// Git runs the git subprocesses (auth is configured via its ExtraEnv).
-	Git gitcmd.Runner
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
@@ -65,7 +65,7 @@ func (m *Manager) BranchName(ev Event) string {
 }
 
 // LockFor returns the per-repository mutex. Callers must hold this lock for
-// the entire pipeline (setup, agent execution, delivery) that operates on the
+// the entire pipeline (setup, agent execution) that operates on the
 // workspace; Setup assumes the lock is already held.
 func (m *Manager) LockFor(ev Event) *sync.Mutex {
 	m.mu.Lock()
@@ -95,8 +95,8 @@ func (m *Manager) Setup(ctx context.Context, ev Event) (path string, branch stri
 	for _, sp := range startPoints {
 		// -B creates or resets the branch at the start point; -f discards
 		// modifications left behind by previous (possibly failed) events.
-		if _, err := m.Git.Run(ctx, path, "checkout", "-f", "-B", branch, sp); err == nil {
-			if _, err := m.Git.Run(ctx, path, "clean", "-fd"); err != nil {
+		if _, err := gitcmd.Run(ctx, path, "checkout", "-f", "-B", branch, sp); err == nil {
+			if _, err := gitcmd.Run(ctx, path, "clean", "-fd"); err != nil {
 				return path, branch, fmt.Errorf("clean workspace: %w", err)
 			}
 			return path, branch, nil
@@ -110,7 +110,7 @@ func (m *Manager) Setup(ctx context.Context, ev Event) (path string, branch stri
 // from a clean slate instead of a poisoned workspace.
 func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
-		if _, err := m.Git.Run(ctx, path, "fetch", "origin"); err != nil {
+		if _, err := gitcmd.Run(ctx, path, "fetch", "origin"); err != nil {
 			return fmt.Errorf("fetch origin: %w", err)
 		}
 		return nil
@@ -122,7 +122,7 @@ func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create workspace parent dir: %w", err)
 	}
-	if _, err := m.Git.Run(ctx, "", "clone", ev.CloneURL, path); err != nil {
+	if _, err := gitcmd.Run(ctx, "", "clone", ev.CloneURL, path); err != nil {
 		if rmErr := os.RemoveAll(path); rmErr != nil {
 			log.Printf("[workspace] failed to clean up partial clone at %s: %v", path, rmErr)
 		}
@@ -137,7 +137,7 @@ func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 func (m *Manager) fetchStartPoints(ctx context.Context, ev Event, path string) []string {
 	var startPoints []string
 	if ev.PullRef != "" {
-		if _, err := m.Git.Run(ctx, path, "fetch", "origin", ev.PullRef); err != nil {
+		if _, err := gitcmd.Run(ctx, path, "fetch", "origin", ev.PullRef); err != nil {
 			log.Printf("[workspace] failed to fetch %s, falling back to %s: %v", ev.PullRef, ev.DefaultBranch, err)
 		} else {
 			startPoints = append(startPoints, "FETCH_HEAD")

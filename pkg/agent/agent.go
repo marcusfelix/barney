@@ -1,5 +1,7 @@
 // Package agent defines the pluggable agent harness interface and the
-// OpenCode harness implementation.
+// OpenCode harness implementation. Agents run inside the event workspace
+// with the daemon environment inherited; whatever they produce — commits,
+// pushes, pull requests — is their business, done in bash.
 package agent
 
 import (
@@ -16,12 +18,10 @@ import (
 type ExecutionOpts struct {
 	WorkDir string
 	Prompt  string
-	// Env holds extra environment variables for the agent process.
+	// Env holds extra environment variables for the agent process, on top
+	// of the inherited daemon environment (which carries GitHub auth and
+	// agent credentials).
 	Env map[string]string
-	// Config holds harness-specific settings exposed to the agent as
-	// prefixed environment variables (e.g. Config["model"] becomes
-	// OPENCODE_MODEL for the OpenCode harness).
-	Config map[string]string
 }
 
 // ExecutionResult captures the outcome of an agent execution.
@@ -83,8 +83,8 @@ func NewOpenCodeHarness() *OpenCodeHarness {
 func (h *OpenCodeHarness) ID() string { return "opencode" }
 
 // Execute runs `opencode run <prompt>` inside opts.WorkDir, inheriting the
-// daemon environment plus any opts.Env and opts.Config variables, and
-// returns the captured output.
+// daemon environment (GitHub auth, agent credentials) plus any opts.Env
+// variables, and returns the captured output.
 func (h *OpenCodeHarness) Execute(ctx context.Context, opts ExecutionOpts) (*ExecutionResult, error) {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return nil, fmt.Errorf("empty prompt")
@@ -100,7 +100,6 @@ func (h *OpenCodeHarness) Execute(ctx context.Context, opts ExecutionOpts) (*Exe
 	cmd := exec.CommandContext(ctx, h.Bin, "run", opts.Prompt)
 	cmd.Dir = opts.WorkDir
 	cmd.Env = append(os.Environ(), nameValueEnv(opts.Env)...)
-	cmd.Env = append(cmd.Env, prefixedEnv("OPENCODE_", opts.Config)...)
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -131,15 +130,6 @@ func nameValueEnv(m map[string]string) []string {
 	env := make([]string, 0, len(m))
 	for k, v := range m {
 		env = append(env, k+"="+v)
-	}
-	return env
-}
-
-// prefixedEnv converts a map to PREFIXEDKEY=value environment entries.
-func prefixedEnv(prefix string, m map[string]string) []string {
-	env := make([]string, 0, len(m))
-	for k, v := range m {
-		env = append(env, prefix+strings.ToUpper(k)+"="+v)
 	}
 	return env
 }

@@ -131,12 +131,11 @@ func TestRenderPromptMissingTemplate(t *testing.T) {
 	}
 }
 
-func TestEngineProcess(t *testing.T) {
+func TestProcess(t *testing.T) {
 	m, err := Parse([]byte(sampleManifest))
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	engine := &Engine{}
 
 	payload := map[string]interface{}{
 		"action": "opened",
@@ -149,7 +148,7 @@ func TestEngineProcess(t *testing.T) {
 		},
 	}
 
-	matched := engine.Process(context.Background(), m, "issues", "opened", payload)
+	matched := Process(context.Background(), m, "issues", "opened", payload)
 	if len(matched) != 1 {
 		t.Fatalf("len(matched) = %d, want 1", len(matched))
 	}
@@ -161,7 +160,7 @@ func TestEngineProcess(t *testing.T) {
 	}
 }
 
-func TestEngineProcessFilterErrorSkipsTriggerOnly(t *testing.T) {
+func TestProcessFilterErrorSkipsTriggerOnly(t *testing.T) {
 	manifestYAML := `version: "v0"
 triggers:
   - id: "bad-filter"
@@ -176,40 +175,16 @@ triggers:
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	engine := &Engine{}
 
 	// A push-shaped payload has no "issue" key: trigger 1's filter errors.
 	// Trigger 2 (no filter) must still match.
 	payload := map[string]interface{}{"action": "opened"}
-	matched := engine.Process(context.Background(), m, "issues", "opened", payload)
+	matched := Process(context.Background(), m, "issues", "opened", payload)
 	if len(matched) != 1 {
 		t.Fatalf("len(matched) = %d, want 1 (bad filter must not abort the event)", len(matched))
 	}
 	if matched[0].Trigger.ID != "no-filter" {
 		t.Errorf("matched trigger = %q, want no-filter", matched[0].Trigger.ID)
-	}
-}
-
-func TestEngineProcessAgentFilter(t *testing.T) {
-	m, err := Parse([]byte(sampleManifest))
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	engine := &Engine{AgentFilter: map[string]bool{"claude": true}}
-
-	payload := map[string]interface{}{
-		"action": "opened",
-		"issue": map[string]interface{}{
-			"title": "x",
-			"labels": []interface{}{
-				map[string]interface{}{"name": "agent-task"},
-			},
-		},
-	}
-
-	matched := engine.Process(context.Background(), m, "issues", "opened", payload)
-	if len(matched) != 0 {
-		t.Errorf("expected no matches when agent is filtered out, got %d", len(matched))
 	}
 }
 

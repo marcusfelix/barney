@@ -308,7 +308,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
     </div>
 
     <div class="tab-panel active" id="ex-issues">
-      <p class="tab-caption"><b>Delegate implementation.</b> Assign an issue to your bot account, Barney does the rest.</p>
+      <p class="tab-caption"><b>Delegate implementation.</b> Assign an issue to your bot account — the agent implements it, commits, and opens the PR itself.</p>
       <div class="code">
         <div class="code-bar"><span>⎇ .barney/manifest.yaml</span><button class="copy" data-copy="code-issues">copy ⎘</button></div>
 <pre id="code-issues"><span class="y-k">version</span>: <span class="y-s">"v0"</span>
@@ -371,7 +371,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
       <li><span class="sym">❯</span><b>event</b> — <code>issues</code>, <code>issue_comment</code>, <code>pull_request</code>, <code>pull_request_review_comment</code>, <code>push</code></li>
       <li><span class="sym">❯</span><b>filter</b> — a CEL expression over the raw GitHub payload: labels, authors, draft state, branches, anything</li>
       <li><span class="sym">❯</span><b>agent</b> — pluggable harnesses; opencode ships built-in, wire in your own</li>
-      <li><span class="sym">❯</span><b>prompt_template</b> — Go templates with the full event payload; you write the task, Barney drags back the PR</li>
+      <li><span class="sym">❯</span><b>prompt_template</b> — Go templates with the full event payload; you write the task, the agent drags back the PR</li>
     </ul>
   </div>
 </section>
@@ -387,8 +387,9 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
         <p>
           A purple Tyrannosaurus that evolved specifically to read <b>GitHub webhooks</b>.
           459 million years of evolution led to this: it clones your repo, branches off, runs
-          your agent of choice inside the fresh kill, and commits the remains as a
-          <b>pull request</b>. Fully domesticated. House-trained. <b>Revertible with
+          your agent of choice inside the fresh kill, and hands it your token — the agent
+          drags the remains home as a <b>pull request</b>, with plain <code>git</code> and
+          <code>gh</code>. Fully domesticated. House-trained. <b>Revertible with
           <code>git revert</code></b>.
         </p>
       </div>
@@ -464,12 +465,12 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
       <div class="step">
         <span class="n">04</span>
         <span class="cmd">» strike</span>
-        <span class="desc"><b>opencode runs in the workspace</b> with the rendered prompt and event context env vars. Output logged, line by line.</span>
+        <span class="desc"><b>opencode runs in the workspace</b> with the rendered prompt, your GitHub token, and <b style="color:var(--pink)">BARNEY_*</b> context env vars. Output logged, line by line.</span>
       </div>
       <div class="step">
         <span class="n">05</span>
         <span class="cmd">» drag home</span>
-        <span class="desc"><b>Changes detected → committed → pushed → PR opened</b> against your default branch. Nothing changed? It returns empty-mouthed. <span class="sym">✓</span></span>
+        <span class="desc"><b>The agent delivers itself</b> — commit, push, PR opened with plain <b>git + gh</b>. Bash is all it needs; Barney never touches your delivery. <span class="sym">✓</span></span>
       </div>
     </div>
   </div>

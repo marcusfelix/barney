@@ -9,14 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/deploid/barney/internal/gitcmd"
 	"github.com/deploid/barney/pkg/agent"
-	"github.com/deploid/barney/pkg/git"
 	"github.com/deploid/barney/pkg/manifest"
 	"github.com/deploid/barney/pkg/webhook"
 	"github.com/deploid/barney/pkg/workspace"
@@ -26,13 +24,11 @@ const defaultEventTimeout = 30 * time.Minute
 
 // Config holds daemon configuration from flags or environment.
 type Config struct {
-	Port           string
-	WebhookSecret  string
-	WorkspaceRoot  string
-	GitHubToken    string
-	EventTimeout   time.Duration
-	CommitterName  string
-	CommitterEmail string
+	Port          string
+	WebhookSecret string
+	WorkspaceRoot string
+	GitHubToken   string
+	EventTimeout  time.Duration
 }
 
 // envOrFlag returns a flag whose default comes from an environment variable.
@@ -53,8 +49,6 @@ func LoadConfig() (*Config, error) {
 	root := envOrFlag(fs, "workspace-root", "WORKSPACE_ROOT", "/var/lib/barney/workspaces", "Workspace storage root")
 	token := fs.String("github-token", os.Getenv("GITHUB_TOKEN"), "GitHub token for git/gh operations (required)")
 	timeoutStr := envOrFlag(fs, "event-timeout", "EVENT_TIMEOUT", "30m", "Per-event processing timeout (Go duration)")
-	committerName := fs.String("committer-name", os.Getenv("COMMITTER_NAME"), "Git author name for automated commits (optional)")
-	committerEmail := fs.String("committer-email", os.Getenv("COMMITTER_EMAIL"), "Git author email for automated commits (optional)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return nil, err
@@ -66,13 +60,11 @@ func LoadConfig() (*Config, error) {
 	}
 
 	cfg := &Config{
-		Port:           *port,
-		WebhookSecret:  *secret,
-		WorkspaceRoot:  *root,
-		GitHubToken:    *token,
-		EventTimeout:   timeout,
-		CommitterName:  *committerName,
-		CommitterEmail: *committerEmail,
+		Port:          *port,
+		WebhookSecret: *secret,
+		WorkspaceRoot: *root,
+		GitHubToken:   *token,
+		EventTimeout:  timeout,
 	}
 	if cfg.WebhookSecret == "" {
 		return nil, fmt.Errorf("--webhook-secret / WEBHOOK_SECRET is required")
@@ -86,20 +78,20 @@ func LoadConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// Orchestrator wires webhook events to workspace setup, manifest processing,
-// agent execution, and delivery. Each event holds the per-repo workspace
-// lock for its entire pipeline.
+// Orchestrator wires webhook events to workspace setup, manifest evaluation,
+// and agent execution. Each event holds the per-repo workspace lock for its
+// entire pipeline. Delivery — commits, pushes, pull requests — is the agent's
+// job, not Barney's.
 type Orchestrator struct {
 	Workspace    *workspace.Manager
-	Engine       *manifest.Engine
 	Registry     *agent.Registry
-	Delivery     *git.Engine
 	EventTimeout time.Duration
 }
 
 // HandleEvent processes a normalized webhook event end-to-end: workspace
-// setup, manifest evaluation, agent execution for every matched trigger, and
-// a single delivery (commit/push/PR) covering all changes made by the event.
+// setup, manifest evaluation, and agent execution for every matched trigger.
+// What the agent does with its bash access (commit, push, open a PR) is
+// entirely up to the prompt; Barney never touches git delivery.
 func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 	timeout := o.EventTimeout
 	if timeout <= 0 {
@@ -140,28 +132,20 @@ func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 		return
 	}
 
-	matched := o.Engine.Process(ctx, m, string(event.EventType), event.EventID, event.RawPayload)
+	matched := manifest.Process(ctx, m, string(event.EventType), event.EventID, event.RawPayload)
 	if len(matched) == 0 {
 		log.Printf("no triggers matched event %s %s", event.EventType, event.EventID)
 		return
 	}
 
-	if o.runTriggers(ctx, matched, event, path, branch) {
-		o.deliver(ctx, event, ev, path, branch)
-	}
+	o.runTriggers(ctx, matched, event, ev, path, branch)
+	log.Printf("event %s %s complete; delivery is up to the agent", event.EventType, event.EventID)
 }
 
-// runTriggers executes each matched trigger's agent sequentially and reports
-// whether at least one run succeeded.
-func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, path, branch string) bool {
-	agentEnv := map[string]string{
-		"BARNEY_EVENT_TYPE": string(event.EventType),
-		"BARNEY_EVENT_ID":   event.EventID,
-		"BARNEY_REPO":       event.RepoName,
-		"BARNEY_BRANCH":     branch,
-	}
-
-	succeeded := 0
+// runTriggers executes each matched trigger's agent sequentially in the event
+// workspace with the BARNEY_* environment contract in place.
+func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, ev workspace.Event, path, branch string) {
+	env := agentEnvFor(event, ev, branch)
 	for _, mt := range matched {
 		h, err := o.Registry.Get(mt.Trigger.Agent)
 		if err != nil {
@@ -172,39 +156,24 @@ func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.Match
 		if _, err := h.Execute(ctx, agent.ExecutionOpts{
 			WorkDir: path,
 			Prompt:  mt.Prompt,
-			Env:     agentEnv,
+			Env:     env,
 		}); err != nil {
 			log.Printf("trigger %q agent execution failed: %v", mt.Trigger.ID, err)
-			continue
 		}
-		succeeded++
 	}
-
-	if succeeded == 0 {
-		log.Printf("no successful agent runs for event %s %s; skipping delivery", event.EventType, event.EventID)
-	}
-	return succeeded > 0
 }
 
-// deliver commits and pushes all changes made by the event's agents as a
-// single delivery and opens a pull request.
-func (o *Orchestrator) deliver(ctx context.Context, event *webhook.NormalizedEvent, ev workspace.Event, path, branch string) {
-	ref := displayRef(event)
-	delivery, err := o.Delivery.Deliver(ctx, git.DeliveryOptions{
-		WorkDir:    path,
-		Branch:     branch,
-		EventType:  ev.EventType,
-		EventID:    ref,
-		BaseBranch: prBaseFor(event, ev.DefaultBranch),
-	})
-	if err != nil {
-		log.Printf("delivery failed for event %s %s: %v", event.EventType, event.EventID, err)
-		return
-	}
-	if delivery.PullRequest != nil {
-		log.Printf("delivered PR for %s #%s: %s", event.EventType, ref, delivery.PullRequest.URL)
-	} else {
-		log.Printf("agent run produced no changes; nothing delivered")
+// agentEnvFor builds the BARNEY_* environment contract handed to every agent
+// process: everything a bash-driven workflow needs to commit, push, and open
+// pull requests on its own. GitHub auth (GITHUB_TOKEN/GH_TOKEN and
+// git-over-HTTPS config) is inherited from the daemon environment.
+func agentEnvFor(event *webhook.NormalizedEvent, ev workspace.Event, branch string) map[string]string {
+	return map[string]string{
+		"BARNEY_EVENT_TYPE":  string(event.EventType),
+		"BARNEY_EVENT_ID":    event.EventID,
+		"BARNEY_REPO":        ev.RepoOwner + "/" + ev.RepoName,
+		"BARNEY_BRANCH":      branch,
+		"BARNEY_BASE_BRANCH": baseBranchFor(event, ev.DefaultBranch),
 	}
 }
 
@@ -219,10 +188,19 @@ func mapAt(m map[string]interface{}, key string) map[string]interface{} {
 	return obj
 }
 
-// numberAt returns the numeric field key as an int, or 0 when absent.
+// numberAt returns the numeric field key as an int, or 0 when absent. It
+// accepts both float64 (JSON-decoded payloads) and native Go numbers.
 func numberAt(m map[string]interface{}, key string) int {
-	f, _ := m[key].(float64)
-	return int(f)
+	switch v := m[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 // pullRefFor extracts a pull request ref (refs/pull/<n>/head) for
@@ -238,9 +216,10 @@ func pullRefFor(event *webhook.NormalizedEvent) string {
 	return ""
 }
 
-// prBaseFor returns the PR base branch for pull_request-flavored events,
-// falling back to the repository default branch.
-func prBaseFor(event *webhook.NormalizedEvent, defaultBranch string) string {
+// baseBranchFor returns the branch an agent should target for pull requests:
+// the PR's own base for pull_request-flavored events, else the repository
+// default branch.
+func baseBranchFor(event *webhook.NormalizedEvent, defaultBranch string) string {
 	if !isPullEvent(event.EventType) {
 		return defaultBranch
 	}
@@ -251,17 +230,6 @@ func prBaseFor(event *webhook.NormalizedEvent, defaultBranch string) string {
 	return defaultBranch
 }
 
-// displayRef returns a human-meaningful reference for commit messages and PR
-// titles: the issue or PR number when available, else the delivery ID.
-func displayRef(event *webhook.NormalizedEvent) string {
-	for _, key := range []string{"issue", "pull_request"} {
-		if n := numberAt(mapAt(event.RawPayload, key), "number"); n > 0 {
-			return strconv.Itoa(n)
-		}
-	}
-	return event.EventID
-}
-
 func main() {
 	log.SetPrefix("[barney] ")
 	cfg, err := LoadConfig()
@@ -269,26 +237,22 @@ func main() {
 		log.Fatalf("configuration: %v", err)
 	}
 
+	// Authenticated git and `gh` live in the process environment, so every
+	// subprocess inherits them: Barney's clone/fetch calls and the agent's
+	// own commit/push/PR workflows.
+	gitcmd.ConfigureAuth(cfg.GitHubToken)
+
 	wsm, err := workspace.NewManager(cfg.WorkspaceRoot)
 	if err != nil {
 		log.Fatalf("workspace manager: %v", err)
 	}
-	wsm.Git = gitcmd.Runner{ExtraEnv: gitcmd.AuthEnv(cfg.GitHubToken)}
 
 	registry := agent.NewRegistry()
 	registry.Register(agent.NewOpenCodeHarness())
 
-	delivery := git.NewEngine()
-	delivery.Token = cfg.GitHubToken
-	delivery.Git = wsm.Git
-	delivery.CommitterName = cfg.CommitterName
-	delivery.CommitterEmail = cfg.CommitterEmail
-
 	orchestrator := &Orchestrator{
 		Workspace:    wsm,
-		Engine:       &manifest.Engine{},
 		Registry:     registry,
-		Delivery:     delivery,
 		EventTimeout: cfg.EventTimeout,
 	}
 

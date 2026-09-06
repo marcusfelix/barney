@@ -40,13 +40,6 @@ type MatchedTrigger struct {
 	Prompt  string
 }
 
-// Engine evaluates manifests against events.
-type Engine struct {
-	// AgentFilter optionally restricts which agent harnesses are available;
-	// nil means all agents are accepted.
-	AgentFilter map[string]bool
-}
-
 // Load reads and parses .barney/manifest.yaml from the given workspace root.
 // Returns (nil, nil) when the manifest does not exist so callers can exit
 // silently.
@@ -179,14 +172,11 @@ func RenderPrompt(trigger Trigger, payload map[string]interface{}, eventType, ev
 // passes, and returns them with rendered prompts. A trigger whose filter or
 // prompt template fails to evaluate or render is skipped (logged); other
 // triggers still run.
-func (e *Engine) Process(ctx context.Context, m *Manifest, eventType, eventID string, payload map[string]interface{}) []MatchedTrigger {
+func Process(ctx context.Context, m *Manifest, eventType, eventID string, payload map[string]interface{}) []MatchedTrigger {
 	var matched []MatchedTrigger
 	action := payloadAction(payload)
 	for _, trigger := range m.Triggers {
 		if !MatchesEvent(trigger, eventType, action) {
-			continue
-		}
-		if e.AgentFilter != nil && !e.AgentFilter[trigger.Agent] {
 			continue
 		}
 		ok, err := EvaluateFilter(ctx, trigger.Filter, payload)

@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/deploid/barney/pkg/agent"
-	"github.com/deploid/barney/pkg/git"
-	"github.com/deploid/barney/pkg/manifest"
 	"github.com/deploid/barney/pkg/webhook"
 	"github.com/deploid/barney/pkg/workspace"
 )
@@ -33,8 +31,11 @@ triggers:
     prompt_template: "Task: {{ .payload.issue.title }}"
 `
 
-// mockHarness writes a file into the workspace to simulate agent work.
-type mockHarness struct{}
+// mockHarness writes a file into the workspace to simulate agent work and
+// records the execution options it was handed.
+type mockHarness struct {
+	runs chan agent.ExecutionOpts
+}
 
 func (m *mockHarness) ID() string { return "mock" }
 
@@ -42,13 +43,11 @@ func (m *mockHarness) Execute(ctx context.Context, opts agent.ExecutionOpts) (*a
 	if err := os.WriteFile(filepath.Join(opts.WorkDir, "agent-output.txt"), []byte(opts.Prompt), 0o644); err != nil {
 		return nil, err
 	}
+	select {
+	case m.runs <- opts:
+	default:
+	}
 	return &agent.ExecutionResult{Stdout: "wrote agent-output.txt", ExitCode: 0}, nil
-}
-
-type prCall struct {
-	title string
-	body  string
-	base  string
 }
 
 func initBareRepo(t *testing.T) (bare string, seed string) {
@@ -116,7 +115,16 @@ func signBody(t *testing.T, secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
-func TestIntegrationWebhookToEndToEnd(t *testing.T) {
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestIntegrationWebhookToEndAgent(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
@@ -131,25 +139,13 @@ func TestIntegrationWebhookToEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mock := &mockHarness{runs: make(chan agent.ExecutionOpts, 1)}
 	registry := agent.NewRegistry()
-	registry.Register(&mockHarness{})
-
-	prCreated := make(chan prCall, 1)
-	delivery := git.NewEngine()
-	delivery.Token = "dummy"
-	delivery.CreatePR = func(ctx context.Context, workDir, token, title, body, base string) (string, error) {
-		select {
-		case prCreated <- prCall{title: title, body: body, base: base}:
-		default:
-		}
-		return "http://example.local/pr/1", nil
-	}
+	registry.Register(mock)
 
 	orch := &Orchestrator{
 		Workspace:    wsm,
-		Engine:       &manifest.Engine{},
 		Registry:     registry,
-		Delivery:     delivery,
 		EventTimeout: 5 * time.Minute,
 	}
 
@@ -187,18 +183,20 @@ func TestIntegrationWebhookToEndToEnd(t *testing.T) {
 		t.Fatalf("webhook status = %d, want 200", resp.StatusCode)
 	}
 
-	// Delivery (commit + push + PR) happens after the agent run; wait for the
-	// PR creation callback, which is the last step.
-	var call prCall
+	// The agent run is the last thing Barney does — no delivery step follows.
+	var run agent.ExecutionOpts
 	select {
-	case call = <-prCreated:
+	case run = <-mock.runs:
 	case <-time.After(20 * time.Second):
-		t.Fatal("delivery never completed")
+		t.Fatal("agent never ran")
 	}
 
 	workspaceDir := filepath.Join(wsRoot, "local", repoName)
 
-	// Agent ran with the rendered prompt.
+	// Agent ran in the workspace with the rendered prompt.
+	if run.WorkDir != workspaceDir {
+		t.Errorf("agent WorkDir = %q, want %q", run.WorkDir, workspaceDir)
+	}
 	content, err := os.ReadFile(filepath.Join(workspaceDir, "agent-output.txt"))
 	if err != nil {
 		t.Fatal(err)
@@ -207,40 +205,68 @@ func TestIntegrationWebhookToEndToEnd(t *testing.T) {
 		t.Errorf("agent file = %q, want %q", content, "Task: Integration task")
 	}
 
-	// Event branch is unique per delivery ID.
+	// Agent environment contract.
 	branch := "barney/issues-" + deliveryID
-	out, err := exec.Command("git", "-C", workspaceDir, "branch", "--list", branch).Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out), branch) {
-		t.Errorf("expected branch %q in workspace, got %q", branch, strings.TrimSpace(string(out)))
-	}
-
-	// Changes were committed on the event branch with the issue ref (#7).
-	out, err = exec.Command("git", "-C", workspaceDir, "log", "-1", "--format=%s").Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "barney: automated update for issues #7"; strings.TrimSpace(string(out)) != want {
-		t.Errorf("commit message = %q, want %q", strings.TrimSpace(string(out)), want)
+	for k, want := range map[string]string{
+		"BARNEY_EVENT_TYPE":  "issues",
+		"BARNEY_EVENT_ID":    deliveryID,
+		"BARNEY_REPO":        "local/" + repoName,
+		"BARNEY_BRANCH":      branch,
+		"BARNEY_BASE_BRANCH": "main",
+	} {
+		if got := run.Env[k]; got != want {
+			t.Errorf("agent env %s = %q, want %q", k, got, want)
+		}
 	}
 
-	// Branch was pushed to the remote.
-	out, err = exec.Command("git", "-C", bareRepo, "for-each-ref", "--format=%(refname:short)", "refs/heads/"+branch).Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimSpace(string(out)) != branch {
-		t.Errorf("remote does not contain branch %q: %q", branch, strings.TrimSpace(string(out)))
+	// Event branch is unique per delivery ID and checked out in the workspace.
+	if out := gitOut(t, workspaceDir, "branch", "--list", branch); !strings.Contains(out, branch) {
+		t.Errorf("expected branch %q in workspace, got %q", branch, out)
 	}
 
-	// PR was created against the default branch with the issue ref.
-	if !strings.Contains(call.title, "issues #7") {
-		t.Errorf("PR title = %q, want it to reference issues #7", call.title)
+	// Barney must leave the agent's work uncommitted.
+	if status := gitOut(t, workspaceDir, "status", "--porcelain"); status != "?? agent-output.txt" {
+		t.Errorf("git status = %q, want only untracked agent-output.txt (Barney must not commit)", status)
 	}
-	if call.base != "main" {
-		t.Errorf("PR base = %q, want main", call.base)
+
+	// Barney must not push anything: the remote only knows main.
+	if refs := gitOut(t, bareRepo, "for-each-ref", "--format=%(refname:short)", "refs/heads/"); refs != "main" {
+		t.Errorf("remote refs = %q, want only main (Barney must not push)", refs)
+	}
+}
+
+func TestAgentEnvForPullRequestUsesPRBase(t *testing.T) {
+	event := &webhook.NormalizedEvent{
+		EventType:     webhook.EventPullRequest,
+		EventID:       "d-1",
+		RepoOwner:     "acme",
+		RepoName:      "demo",
+		DefaultBranch: "main",
+		RawPayload: map[string]interface{}{
+			"pull_request": map[string]interface{}{
+				"number": 7,
+				"base":   map[string]interface{}{"ref": "develop"},
+			},
+		},
+	}
+	ev := workspace.Event{
+		EventType:     "pull_request",
+		EventID:       "d-1",
+		RepoOwner:     "acme",
+		RepoName:      "demo",
+		DefaultBranch: "main",
+		PullRef:       "pull/7/head",
+	}
+
+	env := agentEnvFor(event, ev, "barney/pull_request-d-1")
+	if got := env["BARNEY_BASE_BRANCH"]; got != "develop" {
+		t.Errorf("BARNEY_BASE_BRANCH = %q, want develop (PR base)", got)
+	}
+	if got := env["BARNEY_REPO"]; got != "acme/demo" {
+		t.Errorf("BARNEY_REPO = %q, want acme/demo", got)
+	}
+	if got := pullRefFor(event); got != "pull/7/head" {
+		t.Errorf("pullRefFor() = %q, want pull/7/head", got)
 	}
 }
 

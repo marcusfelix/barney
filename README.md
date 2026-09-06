@@ -8,17 +8,19 @@
 
 Barney is a self-hosted service that turns GitHub events into agent work. Drop a
 `.barney/manifest.yaml` into your repo, and every issue, comment, or push can dispatch an AI
-agent (like [opencode](https://opencode.ai)) that works in your codebase and opens a pull
-request with the result.
+agent (like [opencode](https://opencode.ai)) to do anything you can describe.
 
 No workflow files, no CI scripts, no runner minutes. You describe *when* the agent should act
-and *what* to ask it — Barney handles the rest: secure webhook intake, workspace cloning,
-branching, agent execution, commits, pushes, and PR creation.
+and *what* to ask it. Barney handles the plumbing — secure webhook intake, workspace cloning,
+branching — and the agent handles the rest in bash.
 
 ## Why Barney
 
 - **One file per repo** — `.barney/manifest.yaml` lives in your repo, versioned with your code.
   Change triggers or prompts like any other config.
+- **Bash is all you need** — the agent gets a real checkout, your GitHub token, and plain
+  `git` + `gh`. Commits, pushes, comments, pull requests are just shell commands the agent
+  runs. Build your automation in prompts and `AGENTS.md` files; Barney never has to change.
 - **Your infra, your keys** — self-hosted. Your token and agent credentials never leave your
   environment.
 - **Any agent** — pluggable harnesses; ships with opencode out of the box.
@@ -61,15 +63,23 @@ triggers:
 
       {{ .payload.issue.body }}
 
-      Implement the change described above, commit it, and make sure tests pass.
+      Implement the change described above and make sure the tests pass.
 ```
 
 Replace `barney-bot` with your bot account's login. Now anyone can assign an issue to the
-bot and Barney will clone the repo, run the agent on it, and open a PR — typically within a
-couple of minutes. (Prefer labels? `filter: payload.issue.labels.exists(l, l.name == 'agent-task')`
-with `event: issues.opened` works the same way.)
+bot and Barney will clone the repo and run the agent on it. (Prefer labels?
+`filter: payload.issue.labels.exists(l, l.name == 'agent-task')` with `event: issues.opened`
+works the same way.)
 
-## Recipes
+## The manifest
+
+A trigger fires when the event matches `event: "<type>.<action>"` *and* the optional CEL
+`filter` passes. The `filter` is evaluated against the raw GitHub payload, so you can gate on
+anything GitHub sends: labels, authors, titles, draft state, branches. Omit it and the
+trigger fires on every matching event. Malformed filters are skipped, not fatal.
+
+Supported events: `issues`, `issue_comment`, `pull_request`,
+`pull_request_review_comment`, `push`.
 
 **Label-gated tasks** — anyone with triage rights labels an issue, the agent implements it:
 
@@ -81,7 +91,7 @@ with `event: issues.opened` works the same way.)
     prompt_template: |
       Issue: {{ .payload.issue.title }}
       {{ .payload.issue.body }}
-      Implement the change, keep tests green.
+      Implement the change and keep tests green.
 ```
 
 **Slash-command on issues** — comment `/barney fix the flaky login test`:
@@ -94,7 +104,7 @@ with `event: issues.opened` works the same way.)
     prompt_template: "The user wrote: {{ .payload.comment.body }}\nDo what they asked on issue #{{ .payload.issue.number }}."
 ```
 
-**PR review helper** — summarize every opened PR:
+**PR review helper** — post a risk assessment on every opened PR:
 
 ```yaml
   - id: pr-summary
@@ -103,7 +113,8 @@ with `event: issues.opened` works the same way.)
     agent: opencode
     prompt_template: |
       Review PR #{{ .payload.pull_request.number }}: {{ .payload.pull_request.title }}
-      Post a concise risk assessment of the diff as a comment on the PR.
+      Post a concise risk assessment of the diff as a comment on the PR
+      (gh pr comment {{ .payload.pull_request.number }} --repo $BARNEY_REPO --body-file ...).
 ```
 
 **Respond to pushes on main**:
@@ -116,35 +127,34 @@ with `event: issues.opened` works the same way.)
     prompt_template: "A push landed on main. Run the test suite and open a fix PR if anything fails."
 ```
 
-## How it works
+## The agent environment
 
-Each triggering event gets its own branch (`barney/<event>-<delivery>`). The agent works
-there; if it produces changes, Barney commits them as `barney: automated update for <event>
-#<issue>` and opens a PR against your default branch. For `pull_request` events, the agent
-works on the PR's own code. Events on the same repo are processed one at a time.
+Each event gets its own branch (`barney/<event>-<delivery>`) in a per-repo workspace; events
+on the same repo are processed one at a time. The agent runs inside that workspace with:
 
-Supported events: `issues`, `issue_comment`, `pull_request`,
-`pull_request_review_comment`, `push`.
+| Variable             | Meaning                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `BARNEY_EVENT_TYPE`  | GitHub event type (`issues`, `push`, ...)                |
+| `BARNEY_EVENT_ID`    | GitHub delivery ID (unique per event)                    |
+| `BARNEY_REPO`        | Repository as `owner/name`                               |
+| `BARNEY_BRANCH`      | The event branch checked out in the workspace            |
+| `BARNEY_BASE_BRANCH` | Default branch, or the PR base for `pull_request` events |
 
-### Choosing when triggers fire
-
-A trigger fires when the event matches `event: "<type>.<action>"` *and* the optional CEL
-`filter` passes. `filter` is an expression evaluated against the raw GitHub payload, so you
-can gate on anything GitHub sends: labels, authors, titles, draft state, branches. Omit it and
-the trigger fires on every matching event. See the examples above; malformed filters are
-skipped, not fatal.
+Git-over-HTTPS is pre-authenticated with `GITHUB_TOKEN` via environment config — no
+credentials are written to disk — so `git push` just works inside the workspace, and `gh`
+picks up the same token. All other daemon environment variables (agent API keys,
+`OPENCODE_*` settings) are inherited too. Whatever the agent does — run tests, fix bugs,
+comment, commit, push, open PRs — happens through those tools and is defined by your prompt.
 
 ## Configuration
 
 | Environment      | Default                      | Required | Notes                                  |
 | ---------------- | ---------------------------- | -------- | -------------------------------------- |
 | `WEBHOOK_SECRET` | —                            | yes      | HMAC secret for webhook validation     |
-| `GITHUB_TOKEN`   | —                            | yes      | Used for clone/fetch/push and `gh`     |
+| `GITHUB_TOKEN`   | —                            | yes      | Git-over-HTTPS auth and `gh`; inherited by agents |
 | `PORT`           | `8080`                       | no       |                                        |
 | `WORKSPACE_ROOT` | `/var/lib/barney/workspaces` | no       | Where repos are cloned                 |
 | `EVENT_TIMEOUT`  | `30m`                        | no       | Per-event processing limit             |
-| `COMMITTER_NAME` | `barney`                     | no       | Git author name on automated commits   |
-| `COMMITTER_EMAIL`| `barney@users.noreply.github.com` | no  | Git author email on automated commits  |
 
 ### Agent credentials (stateless)
 
@@ -164,8 +174,8 @@ settings.
 
 ## Security
 
-The agent runs with your `GITHUB_TOKEN` and can commit whatever it produces — the manifest
-filter is the only gate. On public repos, avoid permissive filters (e.g. trusting any
+The agent runs with your `GITHUB_TOKEN` and can commit and push whatever it produces — the
+manifest filter is the only gate. On public repos, avoid permissive filters (e.g. trusting any
 commenter); that's arbitrary code execution on your host. Prefer label gates that require
 triage permission, or restrict by author login. Use a scoped token.
 
@@ -173,7 +183,6 @@ triage permission, or restrict by author login. Use a scoped token.
 
 - Events are processed in memory; a crash mid-event loses it (GitHub redeliveries are not
   deduplicated).
-- The PR is created but nothing is commented back on the triggering issue.
 - The opencode CLI is installed at image build time (pin the version for production).
 
 ## Development
