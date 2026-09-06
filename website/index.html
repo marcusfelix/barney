@@ -270,7 +270,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
     <img class="mascot" src="assets/barney.jpg" alt="Barney, a purple T-Rex roaring YOLO in a neon city">
     <h1>He ate the backlog!</h1>
     <p class="sub">
-      <b>Tame a self-hosted code dinosaur</b> that never sleeps: label an issue, drop a
+      <b>Tame a self-hosted code dinosaur</b> that never sleeps: assign it an issue, drop a
       <b>/barney</b> comment, push to main — it wakes up, does the work, and drags back a
       <b>pull request</b>. One YAML file. No runners. It only bites flaky tests.
     </p>
@@ -308,14 +308,14 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
     </div>
 
     <div class="tab-panel active" id="ex-issues">
-      <p class="tab-caption"><b>Delegate implementation.</b> Anyone with triage rights pokes the dino with a label, Barney does the rest.</p>
+      <p class="tab-caption"><b>Delegate implementation.</b> Assign an issue to your bot account, Barney does the rest.</p>
       <div class="code">
         <div class="code-bar"><span>⎇ .barney/manifest.yaml</span><button class="copy" data-copy="code-issues">copy ⎘</button></div>
 <pre id="code-issues"><span class="y-k">version</span>: <span class="y-s">"v0"</span>
 <span class="y-k">triggers</span>:
-  - <span class="y-k">id</span>: <span class="y-s">fix-labeled-issues</span>
-    <span class="y-k">event</span>: <span class="y-s">issues.opened</span>
-    <span class="y-k">filter</span>: <span class="y-f">payload.issue.labels.exists(l, l.name == 'agent-task')</span>
+  - <span class="y-k">id</span>: <span class="y-s">assigned-to-barney</span>
+    <span class="y-k">event</span>: <span class="y-s">issues.assigned</span>
+    <span class="y-k">filter</span>: <span class="y-f">payload.issue.assignees.exists(u, u.login == 'barney-bot')</span>
     <span class="y-k">agent</span>: <span class="y-s">opencode</span>
     <span class="y-k">prompt_template</span>: <span class="y-t">"Issue: {{ .payload.issue.title }}</span>
 <span class="y-t">        {{ .payload.issue.body }}</span>
@@ -529,8 +529,8 @@ git add .barney/manifest.yaml && git commit -m "barney: awaken" && git push
 <script>
 // ── typed terminal demo: runs once, then stops ──────
 const LINES = [
-  { cls: "dim",   text: "# someone pokes the dinosaur…" },
-  { cls: "prompt", text: "❯ issue #42 · label 'agent-task' → BARNEY AWAKENS", pause: 900 },
+  { cls: "dim",   text: "# someone assigns an issue to the dinosaur…" },
+  { cls: "prompt", text: "❯ issue #42 assigned to barney-bot → BARNEY AWAKENS", pause: 900 },
   { cls: "warn",  text: "» stalking you/your-repo on barney/issues-6f1a2b3c", pause: 800 },
   { cls: "warn",  text: "» opencode: \"Issue: Fix the login bug…\" (chomp)", pause: 1600 },
   { cls: "ok",    text: "  ✓ 3 files eaten — er, changed · tests green", pause: 700 },
