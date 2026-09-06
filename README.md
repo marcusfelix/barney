@@ -1,6 +1,6 @@
 # Barney
 
-<p align="center">
+<p align="left">
   <img src="website/assets/barney-white.jpg" width="360" alt="Barney, a purple T-Rex roaring YOLO">
 </p>
 
