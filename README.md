@@ -46,15 +46,15 @@ gh webhook forward --repo=your-org/your-repo --events=issues,issue_comment,pull_
 
 ### 3. Add the manifest
 
-Commit this to your repo:
+Commit this to your repo — it hands every issue **assigned to your bot account** to the agent:
 
 ```yaml
 # .barney/manifest.yaml
 version: "v0"
 triggers:
-  - id: label-task
-    event: issues.opened
-    filter: payload.issue.labels.exists(l, l.name == 'agent-task')
+  - id: assigned-to-barney
+    event: issues.assigned
+    filter: payload.issue.assignees.exists(u, u.login == 'barney-bot')
     agent: opencode
     prompt_template: |
       Issue: {{ .payload.issue.title }}
@@ -64,10 +64,25 @@ triggers:
       Implement the change described above, commit it, and make sure tests pass.
 ```
 
-Now anyone with triage permission can label an issue `agent-task` and Barney will clone the
-repo, run the agent on it, and open a PR — typically within a couple of minutes.
+Replace `barney-bot` with your bot account's login. Now anyone can assign an issue to the
+bot and Barney will clone the repo, run the agent on it, and open a PR — typically within a
+couple of minutes. (Prefer labels? `filter: payload.issue.labels.exists(l, l.name == 'agent-task')`
+with `event: issues.opened` works the same way.)
 
 ## Recipes
+
+**Label-gated tasks** — anyone with triage rights labels an issue, the agent implements it:
+
+```yaml
+  - id: label-task
+    event: issues.opened
+    filter: payload.issue.labels.exists(l, l.name == 'agent-task')
+    agent: opencode
+    prompt_template: |
+      Issue: {{ .payload.issue.title }}
+      {{ .payload.issue.body }}
+      Implement the change, keep tests green.
+```
 
 **Slash-command on issues** — comment `/barney fix the flaky login test`:
 
