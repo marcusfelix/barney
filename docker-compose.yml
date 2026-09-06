@@ -1,0 +1,17 @@
+services:
+  barney:
+    build: .
+    image: barney:v0
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      PORT: "8080"
+      WORKSPACE_ROOT: /var/lib/barney/workspaces
+    volumes:
+      - barney-workspaces:/var/lib/barney/workspaces
+
+volumes:
+  barney-workspaces:

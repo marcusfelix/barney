@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barney — tame a code dinosaur</title>
+<meta name="description" content="One YAML file in your repo. Every GitHub issue, comment, or push awakens a code dinosaur that does the work and drags back a pull request.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/barney.png">
+<style>
+:root {
+  --bg: #000000;
+  --bg-alt: #111111;
+  --bg-chrome: #1a1a1a;
+  --line: #2a2a2a;
+  --white: #f8f8f2;
+  --grey: #8b8b8b;
+  --dim: #5a5a5a;
+  --pink: #ff79c6;
+  --purple: #bd93f9;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* top-level control reset: kill UA chrome on every button */
+button {
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+::selection { background: var(--pink); color: var(--bg); }
+
+a { color: var(--white); text-decoration: none; }
+a:hover { text-decoration: none; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+/* ── header menu (the ascii lives here) ──────────── */
+nav {
+  background: rgba(0, 0, 0, 0.92);
+  margin-bottom: 72px;
+}
+nav .wrap {
+  display: flex; align-items: center; gap: 24px;
+  padding-top: 16px; padding-bottom: 16px;
+}
+nav .ascii {
+  color: var(--pink);
+  font-size: 14px;
+  line-height: 1.15;
+  white-space: pre;
+  overflow: hidden;
+  user-select: none;
+}
+@media (max-width: 900px) { nav .ascii { font-size: 9px; } }
+
+/* ── hero ────────────────────────────────────────── */
+.hero { margin: 72px auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+@media (max-width: 900px) { .hero { grid-template-columns: 1fr; margin: 48px auto; } }
+
+.hero .mascot { height: 150px; image-rendering: pixelated; margin-bottom: 20px; }
+
+.hero h1 {
+  font-size: clamp(34px, 5vw, 56px);
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--white);
+  margin: 0 0 20px;
+}
+.hero .sub { color: var(--grey); font-size: 16px; margin-bottom: 28px; }
+.hero .sub b { color: var(--pink); font-weight: 500; }
+
+/* ── TUI buttons (no borders, bold, color-only hover) ── */
+.cta { display: flex; gap: 16px; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: 10px 18px;
+  font-weight: 700; font-size: 15px;
+  background: none; border: none; cursor: pointer;
+  transition: color .15s;
+}
+.btn::before { content: "[ "; color: var(--dim); }
+.btn::after { content: " ]"; color: var(--dim); }
+.btn-primary { color: var(--pink); }
+.btn-primary:hover { color: var(--white); }
+.btn-ghost { color: var(--white); }
+.btn-ghost:hover { color: var(--pink); }
+
+/* ── terminal window ─────────────────────────────── */
+.term {
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  overflow: hidden;
+  font-size: 13.5px;
+}
+.term-bar {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-chrome); padding: 10px 14px;
+}
+.term-bar .dot { width: 12px; height: 12px; border-radius: 50%; }
+.dot-r { background: #ff5f57; } .dot-y { background: #febc2e; } .dot-g { background: #28c840; }
+.term-bar .title { margin-left: auto; margin-right: auto; color: var(--dim); font-size: 12px; padding-right: 40px; }
+.term-body { padding: 18px 20px; line-height: 1.9; min-height: 250px; }
+.term-body .line { white-space: pre-wrap; word-break: break-all; }
+.term-body .prompt { color: var(--pink); }
+.term-body .path { color: var(--white); }
+.term-body .ok { color: var(--white); }
+.term-body .warn { color: var(--white); }
+.term-body .dim { color: var(--dim); }
+.cursor {
+  display: inline-block; width: 9px; height: 1.15em;
+  background: var(--pink); vertical-align: text-bottom;
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── sections (flat black, no zebra) ─────────────── */
+section { padding: 72px 0; background: var(--bg); }
+
+.kicker { color: var(--pink); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+.kicker::before { content: "## "; color: var(--dim); }
+h2 { font-size: clamp(22px, 3vw, 32px); font-weight: 800; margin-bottom: 12px; }
+.lead { color: var(--grey); max-width: 720px; margin-bottom: 36px; }
+.lead code { color: var(--pink); background: rgba(255,121,198,.08); padding: 1px 6px; }
+
+/* ── code blocks ─────────────────────────────────── */
+.code {
+  background: var(--bg-alt); border: 1px solid var(--line);
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+}
+.code .code-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg-chrome); padding: 8px 16px;
+  color: var(--dim); font-size: 12px;
+}
+.code pre { padding: 20px 24px; overflow-x: auto; font-size: 14px; line-height: 1.7; }
+.y-k { color: var(--pink); }      /* yaml key */
+.y-s { color: var(--white); }     /* string */
+.y-f { color: var(--purple); }    /* filter/expr */
+.y-c { color: var(--dim); font-style: italic; } /* comment */
+.y-t { color: var(--purple); }    /* template */
+
+/* ── manifest tabs ───────────────────────────────── */
+.tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+.tab {
+  background: none; color: var(--grey);
+  font-family: inherit; font-size: 13px; padding: 6px 14px; cursor: pointer;
+}
+.tab::before { content: "[ "; color: var(--dim); }
+.tab::after { content: " ]"; color: var(--dim); }
+.tab:hover { color: var(--white); }
+.tab.active { color: var(--pink); font-weight: 700; }
+.tab.active::before, .tab.active::after { color: var(--pink); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.tab-caption { color: var(--grey); font-size: 14px; margin-bottom: 14px; }
+.tab-caption b { color: var(--white); font-weight: 500; }
+
+.manifest-points { list-style: none; }
+.manifest-points li { padding: 10px 0; border-bottom: 1px dashed var(--line); color: var(--grey); }
+.manifest-points li:last-child { border: none; }
+.manifest-points .sym { color: var(--pink); margin-right: 10px; }
+.manifest-points b { color: var(--white); font-weight: 500; }
+
+/* ── the beast (specimen card) ───────────────────── */
+.beast { padding: 0 0 8px; }
+.beast .cardbox {
+  display: flex; gap: 40px; align-items: center;
+  border: 1px solid var(--line); background: var(--bg); padding: 32px 40px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.5);
+}
+@media (max-width: 720px) { .beast .cardbox { flex-direction: column; text-align: center; } }
+.beast img { width: 180px; image-rendering: pixelated; flex-shrink: 0; }
+.beast p { color: var(--grey); }
+.beast p b { color: var(--white); font-weight: 500; }
+
+/* ── features ────────────────────────────────────── */
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+@media (max-width: 900px) { .features { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .features { grid-template-columns: 1fr; } }
+.card {
+  background: var(--bg-alt); border: 1px solid var(--line);
+  padding: 24px;
+  transition: border-color .15s;
+}
+.card:hover { border-color: var(--grey); }
+.card .icon { font-size: 15px; font-weight: 700; letter-spacing: 1px; margin-bottom: 14px; color: var(--grey); }
+.card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.card p { color: var(--grey); font-size: 14px; }
+.card .c-p { color: var(--pink); }
+
+/* ── pipeline ────────────────────────────────────── */
+.pipe { font-size: 15px; }
+.pipe .step {
+  display: grid; grid-template-columns: 28px 130px 1fr; gap: 16px;
+  padding: 14px 0; border-bottom: 1px dashed var(--line);
+  align-items: baseline;
+}
+.pipe .step:last-child { border: none; }
+@media (max-width: 620px) { .pipe .step { grid-template-columns: 28px 1fr; } .pipe .desc { grid-column: 2; } }
+.pipe .n { color: var(--dim); }
+.pipe .cmd { color: var(--white); font-weight: 700; }
+.pipe .desc { color: var(--grey); }
+.pipe .desc b { color: var(--white); font-weight: 500; }
+.pipe .sym { color: var(--pink); }
+
+/* ── security ────────────────────────────────────── */
+.sec-box {
+  border: 1px solid var(--line); border-left: 4px solid var(--pink);
+  background: var(--bg-alt); padding: 20px 24px; color: var(--grey);
+}
+.sec-box b { color: var(--pink); }
+.sec-box code { color: var(--white); }
+
+/* ── footer ──────────────────────────────────────── */
+footer { padding: 40px 0; color: var(--grey); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+footer .status { color: var(--grey); }
+footer .right { margin-left: auto; display: flex; gap: 20px; }
+
+/* ── reveal ──────────────────────────────────────── */
+.reveal { opacity: 0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+.reveal.in { opacity: 1; transform: none; }
+
+/* ── copy button ─────────────────────────────────── */
+.copy {
+  background: none; color: var(--dim);
+  font-family: inherit; font-size: 12px; padding: 2px 10px; cursor: pointer;
+}
+.copy:hover { color: var(--pink); }
+</style>
+</head>
+<body>
+
+<!-- ── header menu ─────────────────────────────────── -->
+<nav>
+  <div class="wrap">
+<pre class="ascii">
+_                                 
+| |__   __ _ _ __ _ __   ___ _   _ 
+| '_ \ / _` | '__| '_ \ / _ \ | | |
+| |_) | (_| | |  | | | |  __/ |_| |
+|_.__/ \__,_|_|  |_| |_|\___|\__, |
+                             |___/ 
+</pre>
+  </div>
+</nav>
+
+<!-- ── hero ────────────────────────────────────────── -->
+<header class="wrap hero">
+  <div>
+    <img class="mascot" src="assets/barney.png" alt="Barney, a pixelated purple code dinosaur">
+    <h1>Barney watches your repo.</h1>
+    <p class="sub">
+      <b>Tame a self-hosted code dinosaur</b> that never sleeps: label an issue, drop a
+      <b>/barney</b> comment, push to main — it wakes up, does the work, and drags back a
+      <b>pull request</b>. One YAML file. No runners. It only bites flaky tests.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#quickstart">get started</a>
+      <a class="btn btn-ghost" href="#how">how it works</a>
+    </div>
+  </div>
+
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+      <span class="title">barney — 80x24 — dino-cam</span>
+    </div>
+    <div class="term-body" id="term"></div>
+  </div>
+</header>
+
+<!-- ── manifest ────────────────────────────────────── -->
+<section id="manifest" class="reveal">
+  <div class="wrap">
+    <div class="kicker">the stone tablet</div>
+    <h2>Carve your orders in stone.</h2>
+    <p class="lead">
+      One <code>.barney/manifest.yaml</code> in your repo. Cave paintings, but versioned —
+      review agent behavior in PRs, roll it back with <code>git revert</code>, and let every
+      project tame its own beast.
+    </p>
+
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="ex-issues">issues</button>
+      <button class="tab" data-tab="ex-comments">comments</button>
+      <button class="tab" data-tab="ex-prs">pull requests</button>
+      <button class="tab" data-tab="ex-push">push</button>
+    </div>
+
+    <div class="tab-panel active" id="ex-issues">
+      <p class="tab-caption"><b>Delegate implementation.</b> Anyone with triage rights pokes the dino with a label, Barney does the rest.</p>
+      <div class="code">
+        <div class="code-bar"><span>⎇ .barney/manifest.yaml</span><button class="copy" data-copy="code-issues">copy ⎘</button></div>
+<pre id="code-issues"><span class="y-k">version</span>: <span class="y-s">"v0"</span>
+<span class="y-k">triggers</span>:
+  - <span class="y-k">id</span>: <span class="y-s">fix-labeled-issues</span>
+    <span class="y-k">event</span>: <span class="y-s">issues.opened</span>
+    <span class="y-k">filter</span>: <span class="y-f">payload.issue.labels.exists(l, l.name == 'agent-task')</span>
+    <span class="y-k">agent</span>: <span class="y-s">opencode</span>
+    <span class="y-k">prompt_template</span>: <span class="y-t">"Issue: {{ .payload.issue.title }}</span>
+<span class="y-t">        {{ .payload.issue.body }}</span>
+<span class="y-t">        Implement the change, keep tests green."</span></pre>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="ex-comments">
+      <p class="tab-caption"><b>Slash commands.</b> Comment <b>/barney &lt;task&gt;</b> on any issue to point the dinosaur at fresh prey, on demand.</p>
+      <div class="code">
+        <div class="code-bar"><span>⎇ .barney/manifest.yaml</span><button class="copy" data-copy="code-comments">copy ⎘</button></div>
+<pre id="code-comments"><span class="y-c"># /barney fix the flaky login test</span>
+<span class="y-k">triggers</span>:
+  - <span class="y-k">id</span>: <span class="y-s">slash-command</span>
+    <span class="y-k">event</span>: <span class="y-s">issue_comment.created</span>
+    <span class="y-k">filter</span>: <span class="y-f">payload.comment.body.startsWith('/barney')</span>
+    <span class="y-k">agent</span>: <span class="y-s">opencode</span>
+    <span class="y-k">prompt_template</span>: <span class="y-t">"The user wrote: {{ .payload.comment.body }}</span>
+<span class="y-t">        Do what they asked on issue #{{ .payload.issue.number }}."</span></pre>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="ex-prs">
+      <p class="tab-caption"><b>Review on autopilot.</b> The dino checks out the PR's own code — not the base branch — and gnaws on the diff.</p>
+      <div class="code">
+        <div class="code-bar"><span>⎇ .barney/manifest.yaml</span><button class="copy" data-copy="code-prs">copy ⎘</button></div>
+<pre id="code-prs"><span class="y-k">triggers</span>:
+  - <span class="y-k">id</span>: <span class="y-s">pr-review</span>
+    <span class="y-k">event</span>: <span class="y-s">pull_request.opened</span>
+    <span class="y-k">filter</span>: <span class="y-f">!payload.pull_request.draft</span>
+    <span class="y-k">agent</span>: <span class="y-s">opencode</span>
+    <span class="y-k">prompt_template</span>: <span class="y-t">"Review PR #{{ .payload.pull_request.number }}:</span>
+<span class="y-t">        {{ .payload.pull_request.title }}. Run the tests, fix</span>
+<span class="y-t">        what breaks, and improve anything obviously wrong."</span></pre>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="ex-push">
+      <p class="tab-caption"><b>Self-healing main.</b> A push lands, the dino sniffs it, and opens a fix PR if it smells blood.</p>
+      <div class="code">
+        <div class="code-bar"><span>⎇ .barney/manifest.yaml</span><button class="copy" data-copy="code-push">copy ⎘</button></div>
+<pre id="code-push"><span class="y-k">triggers</span>:
+  - <span class="y-k">id</span>: <span class="y-s">post-merge</span>
+    <span class="y-k">event</span>: <span class="y-s">push</span>
+    <span class="y-k">filter</span>: <span class="y-f">payload.ref == 'refs/heads/main'</span>
+    <span class="y-k">agent</span>: <span class="y-s">opencode</span>
+    <span class="y-k">prompt_template</span>: <span class="y-t">"A push landed on main. Run the test suite</span>
+<span class="y-t">        and open a fix PR if anything fails."</span></pre>
+      </div>
+    </div>
+
+    <ul class="manifest-points" style="margin-top: 28px;">
+      <li><span class="sym">❯</span><b>event</b> — <code>issues</code>, <code>issue_comment</code>, <code>pull_request</code>, <code>pull_request_review_comment</code>, <code>push</code></li>
+      <li><span class="sym">❯</span><b>filter</b> — a CEL expression over the raw GitHub payload: labels, authors, draft state, branches, anything</li>
+      <li><span class="sym">❯</span><b>agent</b> — pluggable harnesses; opencode ships built-in, wire in your own</li>
+      <li><span class="sym">❯</span><b>prompt_template</b> — Go templates with the full event payload; you write the task, Barney drags back the PR</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── the beast (specimen) ────────────────────────── -->
+<div class="beast reveal">
+  <div class="wrap">
+    <div class="cardbox">
+      <img src="assets/barney.png" alt="Barney, a pixelated purple code dinosaur">
+      <div>
+        <div class="kicker">specimen 001</div>
+        <h2>Meet Barney.</h2>
+        <p>
+          A purple Tyrannosaurus that evolved specifically to read <b>GitHub webhooks</b>.
+          459 million years of evolution led to this: it clones your repo, branches off, runs
+          your agent of choice inside the fresh kill, and commits the remains as a
+          <b>pull request</b>. Fully domesticated. House-trained. <b>Revertible with
+          <code>git revert</code></b>.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── features ────────────────────────────────────── -->
+<section id="features" class="reveal">
+  <div class="wrap">
+    <div class="kicker">why keep a dinosaur</div>
+    <h2>A workhorse from the Cretaceous.</h2>
+    <p class="lead">Real git, real branches, real PRs. No magic you can't inspect — just very old, very reliable teeth.</p>
+
+    <div class="features">
+      <div class="card">
+        <div class="icon">01</div>
+        <h3>Speaks fluent git</h3>
+        <p>Every event gets its own branch. Changes come back as normal PRs — reviewable, revertible, blameable. Fresh meat, every time.</p>
+      </div>
+      <div class="card">
+        <div class="icon">02</div>
+        <h3>Hunts on cue</h3>
+        <p>Five GitHub event types with CEL filters. It strikes on labels, comments, drafts, or a push to main. Never misses feeding time.</p>
+      </div>
+      <div class="card">
+        <div class="icon">03</div>
+        <h3>Eats no runner minutes</h3>
+        <p>Self-hosted and always-on. It feeds on one API key and the occasional issue label — not your CI budget.</p>
+      </div>
+      <div class="card">
+        <div class="icon">04</div>
+        <h3>One tiny tablet</h3>
+        <p>Config is a single in-repo file: versioned, reviewed, owned by the project — not carved into some settings page.</p>
+      </div>
+      <div class="card">
+        <div class="icon">05</div>
+        <h3>Surprisingly trainable</h3>
+        <p>opencode works out of the box. The harness interface is one ID + one Execute call — teach the old lizard new tricks.</p>
+      </div>
+      <div class="card">
+        <div class="icon">06</div>
+        <h3>Sleeps in your cave</h3>
+        <p>Tokens and agent credentials never leave your infrastructure. HMAC-verified webhooks only. Strangers get bitten (401).</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── how it works ────────────────────────────────── -->
+<section id="how" class="reveal">
+  <div class="wrap">
+    <div class="kicker">the hunt</div>
+    <h2>From raw event to fresh PR.</h2>
+    <p class="lead">Every step is a real, logged subprocess — you can watch the whole hunt from the container logs.</p>
+
+    <div class="pipe">
+      <div class="step">
+        <span class="n">01</span>
+        <span class="cmd">» scent</span>
+        <span class="desc"><b>A signed event arrives.</b> <span class="sym">✓</span> HMAC-SHA256 verified <span class="sym">✓</span> normalized to one shape. Unsigned? The dino smells intruder: <span style="color:var(--pink)">401</span>.</span>
+      </div>
+      <div class="step">
+        <span class="n">02</span>
+        <span class="cmd">» stalk</span>
+        <span class="desc"><b>Repo cloned or fetched,</b> branch <b style="color:var(--pink)">barney/&lt;event&gt;-&lt;delivery&gt;</b> checked out fresh. PR events get the PR's own code.</span>
+      </div>
+      <div class="step">
+        <span class="n">03</span>
+        <span class="cmd">» read</span>
+        <span class="desc"><b>The stone tablet is consulted.</b> Event matches, CEL filter passes, prompt template renders with the payload.</span>
+      </div>
+      <div class="step">
+        <span class="n">04</span>
+        <span class="cmd">» strike</span>
+        <span class="desc"><b>opencode runs in the workspace</b> with the rendered prompt and event context env vars. Output logged, line by line.</span>
+      </div>
+      <div class="step">
+        <span class="n">05</span>
+        <span class="cmd">» drag home</span>
+        <span class="desc"><b>Changes detected → committed → pushed → PR opened</b> against your default branch. Nothing changed? It returns empty-mouthed. <span class="sym">✓</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── quickstart ──────────────────────────────────── -->
+<section id="quickstart" class="reveal">
+  <div class="wrap">
+    <div class="kicker">tame your own</div>
+    <h2>From zero to dinosaur in five minutes.</h2>
+    <p class="lead">One container, one env file, one webhook, one stone tablet. That's the whole domestication program.</p>
+
+    <div class="code" style="margin-bottom: 24px;">
+      <div class="code-bar"><span>❯ terminal</span><button class="copy" data-copy="qs-code">copy ⎘</button></div>
+<pre id="qs-code"><span class="y-c"># 1 · wake the dinosaur (published on every release)</span>
+mkdir barney && cd barney
+curl -O https://raw.githubusercontent.com/deploid/barney/main/.env.example
+cp .env.example .env   <span class="y-c"># add WEBHOOK_SECRET, GITHUB_TOKEN, agent key</span>
+docker run -d --name barney --env-file .env \
+  -p 8080:8080 \
+  -v barney-workspaces:/var/lib/barney/workspaces \
+  ghcr.io/deploid/barney:latest
+
+<span class="y-c"># 2 · feed it webhooks (or add one in repo settings)</span>
+gh webhook forward --repo=you/your-repo \
+  --events=issues,issue_comment,pull_request,push \
+  --url=http://localhost:8080/webhook
+
+<span class="y-c"># 3 · carve the stone tablet and poke the beast</span>
+git add .barney/manifest.yaml && git commit -m "barney: awaken" && git push
+<span class="y-c"># → ⎇ barney/issues-… ✓  →  PR dragged home ✓</span></pre>
+    </div>
+
+    <div class="sec-box">
+      <b>⛨ fence it in</b> — the dino runs with your token and pushes whatever it produces, so
+      the manifest filter is the only gate: on public repos prefer label gates or trusted
+      logins, never permissive ones. And give Barney <b>its own GitHub account</b> — name it
+      whatever you like (<code>barney-bot</code>, <code>trex-devops</code>,
+      <code>caveman-coder</code>). Commits and PRs clearly come from the dinosaur, its token
+      stays scoped to what it needs, and revoking it never touches your own account.
+    </div>
+  </div>
+</section>
+
+<!-- ── footer ──────────────────────────────────────── -->
+<footer>
+  <div class="wrap">
+    <span><img src="assets/barney.png" alt="" style="height: 18px; image-rendering: pixelated; vertical-align: -3px;"> barney <span class="status">● v0</span></span>
+    <span>— 459 million years of evolution led to this</span>
+    <div class="right">
+      <a href="https://github.com/deploid/barney">source ⌥</a>
+      <a href="https://github.com/deploid/barney/issues">issues ⌥</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ── typed terminal demo: runs once, then stops ──────
+const LINES = [
+  { cls: "dim",   text: "# someone pokes the dinosaur…" },
+  { cls: "prompt", text: "❯ issue #42 · label 'agent-task' → BARNEY AWAKENS", pause: 900 },
+  { cls: "warn",  text: "» stalking you/your-repo on barney/issues-6f1a2b3c", pause: 800 },
+  { cls: "warn",  text: "» opencode: \"Issue: Fix the login bug…\" (chomp)", pause: 1600 },
+  { cls: "ok",    text: "  ✓ 3 files eaten — er, changed · tests green", pause: 700 },
+  { cls: "ok",    text: "  ✓ PR #43 dragged back to base", pause: 800 },
+  { cls: "dim",   text: "# barney returns to its slumber." },
+];
+
+const term = document.getElementById("term");
+let li = 0;
+
+function typeLine() {
+  const { cls, text, pause = 350 } = LINES[li];
+  const line = document.createElement("div");
+  line.className = "line " + cls;
+  term.appendChild(line);
+
+  let ci = 0;
+  const speed = cls === "warn" ? 14 : 8;
+  const tick = setInterval(() => {
+    line.textContent = text.slice(0, ++ci);
+    if (ci >= text.length) {
+      clearInterval(tick);
+      li++;
+      if (li < LINES.length) {
+        setTimeout(typeLine, pause);
+      } else {
+        const done = document.createElement("div");
+        done.className = "line prompt";
+        done.textContent = "❯ ";
+        done.appendChild(cursor);
+        term.appendChild(done);
+      }
+    }
+  }, speed);
+}
+
+// blinking cursor
+const cursor = document.createElement("span");
+cursor.className = "cursor";
+typeLine();
+
+// ── manifest tabs ───────────────────────────────────
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById(tab.dataset.tab).classList.add("active");
+  });
+});
+
+// ── copy buttons ────────────────────────────────────
+document.querySelectorAll(".copy").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const src = document.getElementById(btn.dataset.copy);
+    navigator.clipboard.writeText(src.innerText).then(() => {
+      const old = btn.textContent;
+      btn.textContent = "copied ✓";
+      setTimeout(() => (btn.textContent = old), 1500);
+    });
+  });
+});
+
+// ── scroll reveal ───────────────────────────────────
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+}, { threshold: 0.1 });
+document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+</script>
+</body>
+</html>

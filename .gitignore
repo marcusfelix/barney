@@ -1,0 +1,12 @@
+# Local environment / secrets
+.env
+
+# Workspaces cloned at runtime
+/workspaces/
+
+# macOS
+.DS_Store
+
+# Build output
+/barney
+/dist/
