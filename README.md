@@ -131,17 +131,17 @@ skipped, not fatal.
 
 There is no `opencode auth login` step — Barney is stateless by design. Provider keys are
 injected as environment variables (`.env` / `env_file` / `docker run --env-file`) and
-inherited by the agent process on every run. Uncomment the one your models use in
+inherited by the opencode process on every run. Uncomment the one your models use in
 `.env.example`:
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, ...
+ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY, ...
 ```
 
 Because credentials live in the environment rather than the container filesystem, they
 survive image upgrades — `docker compose pull && docker compose up -d` needs no re-login.
-Any other env var in the container is inherited by the agent as well, including opencode's
-own settings.
+Any other env var in the container is inherited by opencode as well, including its own
+settings.
 
 ## Security
 
