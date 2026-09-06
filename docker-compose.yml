@@ -5,6 +5,9 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    # Everything in .env (including agent API keys) is injected into the
+    # container environment and inherited by the opencode process — the
+    # container stays stateless across upgrades.
     env_file:
       - .env
     environment:

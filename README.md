@@ -127,6 +127,22 @@ skipped, not fatal.
 | `COMMITTER_NAME` | `barney`                     | no       | Git author name on automated commits   |
 | `COMMITTER_EMAIL`| `barney@users.noreply.github.com` | no  | Git author email on automated commits  |
 
+### Agent credentials (stateless)
+
+There is no `opencode auth login` step — Barney is stateless by design. Provider keys are
+injected as environment variables (`.env` / `env_file` / `docker run --env-file`) and
+inherited by the agent process on every run. Uncomment the one your models use in
+`.env.example`:
+
+```sh
+ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, ...
+```
+
+Because credentials live in the environment rather than the container filesystem, they
+survive image upgrades — `docker compose pull && docker compose up -d` needs no re-login.
+Any other env var in the container is inherited by the agent as well, including opencode's
+own settings.
+
 ## Security
 
 The agent runs with your `GITHUB_TOKEN` and can commit whatever it produces — the manifest
@@ -139,8 +155,7 @@ triage permission, or restrict by author login. Use a scoped token.
 - Events are processed in memory; a crash mid-event loses it (GitHub redeliveries are not
   deduplicated).
 - The PR is created but nothing is commented back on the triggering issue.
-- Agent credentials are passed through the environment; the Docker image installs opencode at
-  build time (pin it for production).
+- The opencode CLI is installed at image build time (pin the version for production).
 
 ## Development
 
