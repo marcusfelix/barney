@@ -1,5 +1,9 @@
 # Barney
 
+<p align="center">
+  <img src="website/assets/barney-white.jpg" width="360" alt="Barney, a purple T-Rex roaring YOLO">
+</p>
+
 **Put an AI developer on your team with one file.**
 
 Barney is a self-hosted service that turns GitHub events into agent work. Drop a
@@ -163,3 +167,7 @@ triage permission, or restrict by author login. Use a scoped token.
 go test ./...   # unit + end-to-end integration tests
 go vet ./...
 ```
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and ship.

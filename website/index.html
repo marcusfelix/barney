@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
-<link rel="icon" type="image/png" href="assets/barney.png">
+<link rel="icon" type="image/jpeg" href="assets/barney.jpg">
 <style>
 :root {
   --bg: #000000;
@@ -74,7 +74,7 @@ nav .ascii {
 .hero { margin: 72px auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; margin: 48px auto; } }
 
-.hero .mascot { height: 150px; image-rendering: pixelated; margin-bottom: 20px; }
+.hero .mascot { height: 260px; margin-bottom: 20px; }
 
 .hero h1 {
   font-size: clamp(34px, 5vw, 56px);
@@ -187,7 +187,7 @@ h2 { font-size: clamp(22px, 3vw, 32px); font-weight: 800; margin-bottom: 12px; }
   box-shadow: 0 8px 30px rgba(0,0,0,.5);
 }
 @media (max-width: 720px) { .beast .cardbox { flex-direction: column; text-align: center; } }
-.beast img { width: 180px; image-rendering: pixelated; flex-shrink: 0; }
+.beast img { width: 240px; flex-shrink: 0; }
 .beast p { color: var(--grey); }
 .beast p b { color: var(--white); font-weight: 500; }
 
@@ -266,8 +266,8 @@ _
 <!-- ── hero ────────────────────────────────────────── -->
 <header class="wrap hero">
   <div>
-    <img class="mascot" src="assets/barney.png" alt="Barney, a pixelated purple code dinosaur">
-    <h1>Barney watches your repo.</h1>
+    <img class="mascot" src="assets/barney.jpg" alt="Barney, a purple T-Rex roaring YOLO in a neon city">
+    <h1>He ate the backlog</h1>
     <p class="sub">
       <b>Tame a self-hosted code dinosaur</b> that never sleeps: label an issue, drop a
       <b>/barney</b> comment, push to main — it wakes up, does the work, and drags back a
@@ -292,7 +292,7 @@ _
 <section id="manifest" class="reveal">
   <div class="wrap">
     <div class="kicker">the stone tablet</div>
-    <h2>Carve your orders in stone.</h2>
+    <h2>Carve your orders in stone</h2>
     <p class="lead">
       One <code>.barney/manifest.yaml</code> in your repo. Cave paintings, but versioned —
       review agent behavior in PRs, roll it back with <code>git revert</code>, and let every
@@ -379,10 +379,10 @@ _
 <div class="beast reveal">
   <div class="wrap">
     <div class="cardbox">
-      <img src="assets/barney.png" alt="Barney, a pixelated purple code dinosaur">
+      <img src="assets/barney.jpg" alt="Barney, a purple T-Rex roaring YOLO in a neon city">
       <div>
         <div class="kicker">specimen 001</div>
-        <h2>Meet Barney.</h2>
+        <h2>Meet Barney</h2>
         <p>
           A purple Tyrannosaurus that evolved specifically to read <b>GitHub webhooks</b>.
           459 million years of evolution led to this: it clones your repo, branches off, runs
@@ -399,7 +399,7 @@ _
 <section id="features" class="reveal">
   <div class="wrap">
     <div class="kicker">why keep a dinosaur</div>
-    <h2>A workhorse from the Cretaceous.</h2>
+    <h2>A workhorse from the Cretaceous</h2>
     <p class="lead">Real git, real branches, real PRs. No magic you can't inspect — just very old, very reliable teeth.</p>
 
     <div class="features">
@@ -441,7 +441,7 @@ _
 <section id="how" class="reveal">
   <div class="wrap">
     <div class="kicker">the hunt</div>
-    <h2>From raw event to fresh PR.</h2>
+    <h2>From raw event to fresh PR</h2>
     <p class="lead">Every step is a real, logged subprocess — you can watch the whole hunt from the container logs.</p>
 
     <div class="pipe">
@@ -478,7 +478,7 @@ _
 <section id="quickstart" class="reveal">
   <div class="wrap">
     <div class="kicker">tame your own</div>
-    <h2>From zero to dinosaur in five minutes.</h2>
+    <h2>From zero to dinosaur in five minutes</h2>
     <p class="lead">One container, one env file, one webhook, one stone tablet. That's the whole domestication program.</p>
 
     <div class="code" style="margin-bottom: 24px;">
@@ -516,7 +516,7 @@ git add .barney/manifest.yaml && git commit -m "barney: awaken" && git push
 <!-- ── footer ──────────────────────────────────────── -->
 <footer>
   <div class="wrap">
-    <span><img src="assets/barney.png" alt="" style="height: 18px; image-rendering: pixelated; vertical-align: -3px;"> barney <span class="status">● v0</span></span>
+    <span><img src="assets/barney.jpg" alt="" style="height: 24px; vertical-align: -6px;"> barney <span class="status">● v0</span></span>
     <span>— 459 million years of evolution led to this</span>
     <div class="right">
       <a href="https://github.com/deploid/barney">source ⌥</a>
