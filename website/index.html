@@ -316,7 +316,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
 <span class="y-k">triggers</span>:
   - <span class="y-k">id</span>: <span class="y-s">assigned-to-barney</span>
     <span class="y-k">event</span>: <span class="y-s">issues.assigned</span>
-    <span class="y-k">filter</span>: <span class="y-f">payload.issue.assignees.exists(u, u.login == 'barney-bot')</span>
+    <span class="y-k">filter</span>: <span class="y-f">payload.issue.assignees.exists(u, u.login == 'barney[bot]')</span>
     <span class="y-k">agent</span>: <span class="y-s">opencode</span>
     <span class="y-k">prompt_template</span>: <span class="y-t">"Issue: {{ .payload.issue.title }}</span>
 <span class="y-t">        {{ .payload.issue.body }}</span>
@@ -490,13 +490,13 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
 <pre id="qs-code"><span class="y-c"># 1 · wake the dinosaur (published on every release)</span>
 mkdir barney && cd barney
 curl -O https://raw.githubusercontent.com/marcusfelix/barney/main/.env.example
-cp .env.example .env   <span class="y-c"># add WEBHOOK_SECRET, GITHUB_TOKEN, agent key</span>
+cp .env.example .env   <span class="y-c"># add WEBHOOK_SECRET, APP_ID, APP_PRIVATE_KEY, agent key</span>
 docker run -d --name barney --env-file .env \
   -p 8080:8080 \
   -v barney-workspaces:/var/lib/barney/workspaces \
   ghcr.io/marcusfelix/barney:latest
 
-<span class="y-c"># 2 · feed it webhooks (or add one in repo settings)</span>
+<span class="y-c"># 2 · feed it webhooks (one App webhook covers every repo it's installed on)</span>
 gh webhook forward --repo=you/your-repo \
   --events=issues,issue_comment,pull_request,push \
   --url=http://localhost:8080/webhook
@@ -511,10 +511,12 @@ git add .barney/manifest.yaml && git commit -m "barney: awaken" && git push
       what's in the payload it reads: an issue body is attacker-controlled text handed to the
       agent's bash shell, so treat this like giving a contributor shell access to your CI
       secrets. On public repos, gate on label + triage permission or a trusted-author allowlist.
-      Give Barney <b>its own scoped GitHub account</b> — name it whatever you like
-      (<code>barney-bot</code>, <code>trex-devops</code>, <code>caveman-coder</code>) — so
-      commits and PRs clearly come from the dinosaur and revoking its token never touches your
-      own account. Full writeup in the <a href="https://github.com/marcusfelix/barney#security">README</a>.
+      Barney authenticates as <b>its own GitHub App</b> — name it whatever you like
+      (<code>barney</code>, <code>trex-devops</code>, <code>caveman-coder</code>) — so commits
+      and PRs clearly come from <code>&lt;name&gt;[bot]</code>, tokens are minted per event,
+      scoped to one repo, and expire within the hour, and uninstalling the App revokes
+      everything instantly without touching a personal account. Full writeup in the
+      <a href="https://github.com/marcusfelix/barney#security">README</a>.
     </div>
   </div>
 </section>
@@ -535,7 +537,7 @@ git add .barney/manifest.yaml && git commit -m "barney: awaken" && git push
 // ── typed terminal demo: runs once, then stops ──────
 const LINES = [
   { cls: "dim",   text: "# someone assigns an issue to the dinosaur…" },
-  { cls: "prompt", text: "❯ issue #42 assigned to barney-bot → BARNEY AWAKENS", pause: 900 },
+  { cls: "prompt", text: "❯ issue #42 assigned to barney[bot] → BARNEY AWAKENS", pause: 900 },
   { cls: "warn",  text: "» stalking you/your-repo on barney/issues-6f1a2b3c", pause: 800 },
   { cls: "warn",  text: "» opencode: \"Issue: Fix the login bug…\" (chomp)", pause: 1600 },
   { cls: "ok",    text: "  ✓ 3 files eaten — er, changed · tests green", pause: 700 },

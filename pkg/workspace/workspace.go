@@ -82,16 +82,18 @@ func (m *Manager) LockFor(ev Event) *sync.Mutex {
 // Setup prepares the workspace for an event: it clones the repository if the
 // workspace does not exist (otherwise fetches origin), then force-checks out
 // an isolated branch at the event's target ref, discarding any state left
-// behind by previous events. The caller must hold the per-repo lock.
-func (m *Manager) Setup(ctx context.Context, ev Event) (path string, branch string, err error) {
+// behind by previous events. The caller must hold the per-repo lock. token
+// authenticates the clone/fetch calls that talk to the remote; it is never
+// written to disk or to the workspace's on-disk git config.
+func (m *Manager) Setup(ctx context.Context, ev Event, token string) (path string, branch string, err error) {
 	path = m.Path(ev)
 	branch = m.BranchName(ev)
 
-	if err := m.syncRemote(ctx, ev, path); err != nil {
+	if err := m.syncRemote(ctx, ev, path, token); err != nil {
 		return path, branch, err
 	}
 
-	startPoints := m.fetchStartPoints(ctx, ev, path)
+	startPoints := m.fetchStartPoints(ctx, ev, path, token)
 	for _, sp := range startPoints {
 		// -B creates or resets the branch at the start point; -f discards
 		// modifications left behind by previous (possibly failed) events.
@@ -108,9 +110,9 @@ func (m *Manager) Setup(ctx context.Context, ev Event) (path string, branch stri
 // syncRemote clones the repository into a fresh workspace, or fetches origin
 // in an existing one. A failed clone is removed so the next event starts
 // from a clean slate instead of a poisoned workspace.
-func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
+func (m *Manager) syncRemote(ctx context.Context, ev Event, path, token string) error {
 	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
-		if _, err := gitcmd.Run(ctx, path, "fetch", "origin"); err != nil {
+		if _, err := gitcmd.RunAuthed(ctx, path, token, "fetch", "origin"); err != nil {
 			return fmt.Errorf("fetch origin: %w", err)
 		}
 		return nil
@@ -122,7 +124,7 @@ func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create workspace parent dir: %w", err)
 	}
-	if _, err := gitcmd.Run(ctx, "", "clone", ev.CloneURL, path); err != nil {
+	if _, err := gitcmd.RunAuthed(ctx, "", token, "clone", ev.CloneURL, path); err != nil {
 		if rmErr := os.RemoveAll(path); rmErr != nil {
 			log.Printf("[workspace] failed to clean up partial clone at %s: %v", path, rmErr)
 		}
@@ -134,10 +136,10 @@ func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 // fetchStartPoints returns candidate refs for the event branch, most
 // specific first: a fetched pull ref, then the default branch (remote and
 // local). On pull-ref fetch failure it falls back to the default branch.
-func (m *Manager) fetchStartPoints(ctx context.Context, ev Event, path string) []string {
+func (m *Manager) fetchStartPoints(ctx context.Context, ev Event, path, token string) []string {
 	var startPoints []string
 	if ev.PullRef != "" {
-		if _, err := gitcmd.Run(ctx, path, "fetch", "origin", ev.PullRef); err != nil {
+		if _, err := gitcmd.RunAuthed(ctx, path, token, "fetch", "origin", ev.PullRef); err != nil {
 			log.Printf("[workspace] failed to fetch %s, falling back to %s: %v", ev.PullRef, ev.DefaultBranch, err)
 		} else {
 			startPoints = append(startPoints, "FETCH_HEAD")

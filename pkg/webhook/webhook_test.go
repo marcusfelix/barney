@@ -89,6 +89,28 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+func TestNormalizeInstallationAndRepoID(t *testing.T) {
+	event, err := Normalize(EventIssues, "d-123", []byte(samplePayload))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.RepoID != 456 {
+		t.Errorf("RepoID = %d, want 456", event.RepoID)
+	}
+	if event.InstallationID != 0 {
+		t.Errorf("InstallationID = %d, want 0 (payload has no installation)", event.InstallationID)
+	}
+
+	withInstallation := `{"action":"opened","installation":{"id":789},"repository":{"id":456,"name":"demo","owner":{"login":"acme"}}}`
+	event, err = Normalize(EventIssues, "d-124", []byte(withInstallation))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.InstallationID != 789 {
+		t.Errorf("InstallationID = %d, want 789", event.InstallationID)
+	}
+}
+
 func TestNormalizeEventIDFallbacks(t *testing.T) {
 	// No delivery header: fall back to the action.
 	event, err := Normalize(EventIssues, "", []byte(samplePayload))

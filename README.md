@@ -8,9 +8,9 @@
 
 Barney listens for GitHub events, checks out your repo into a workspace it keeps warm between
 runs, and — when a rule in `.barney/manifest.yaml` matches — hands a rendered prompt to an AI
-agent (like [opencode](https://opencode.ai)). The agent gets a real git checkout, your GitHub
-token, and bash. It commits, pushes, comments, and opens pull requests itself; Barney's job
-ends the moment the agent starts.
+agent (like [opencode](https://opencode.ai)). The agent gets a real git checkout, a scoped
+GitHub token, and bash. It commits, pushes, comments, and opens pull requests itself; Barney's
+job ends the moment the agent starts.
 
 This is a trade: you run and operate the daemon yourself, instead of using GitHub Actions or a
 hosted agent product. In exchange you get a persistent per-repo workspace (no full re-clone
@@ -22,13 +22,14 @@ trigger config that lives in the repo instead of a settings page.
 - **One file per repo** — `.barney/manifest.yaml` lives in your repo, versioned with your code.
   Change triggers or prompts like any other config, review them in PRs, revert them like any
   other commit.
-- **Bash is all you need** — the agent gets a real checkout, your GitHub token, and plain
+- **Bash is all you need** — the agent gets a real checkout, a scoped GitHub token, and plain
   `git` + `gh`. Commits, pushes, comments, pull requests are just shell commands the agent
   runs. Build your automation in prompts and `AGENTS.md` files; Barney never has to change.
 - **Warm workspace** — each repo keeps a persistent clone under `WORKSPACE_ROOT` instead of a
   fresh checkout per run, so repeated events on the same repo skip the full clone.
-- **Your infra, your keys** — self-hosted. Your token and agent credentials never leave your
-  environment.
+- **Your infra, your keys** — self-hosted, authenticated as a GitHub App. No long-lived PAT:
+  tokens are minted per event, scoped to one repo, and expire within the hour. Your App's
+  private key and agent credentials never leave your environment.
 - **Any agent** — pluggable harnesses; ships with opencode out of the box.
 - **Event-driven** — reacts to issues, issue comments, pull requests, PR review comments, and
   pushes.
@@ -38,17 +39,30 @@ filter controls *who* can trigger a run, not what's *in* the payload the agent r
 
 ## Quick start
 
-### 1. Run Barney
+### 1. Create the GitHub App
+
+Under **Settings → Developer settings → GitHub Apps → New GitHub App** (org or personal account):
+
+- **Webhook**: active, URL `http://<your-host>:8080/webhook`, plus a secret — this becomes
+  `WEBHOOK_SECRET`. One webhook covers every repo the App is installed on; there's no per-repo
+  setup.
+- **Permissions**: Repository → Contents (read & write), Pull requests (read & write), Issues
+  (read & write).
+- **Subscribe to events**: Issues, Issue comment, Pull request, Pull request review comment,
+  Push.
+- Generate a **private key** (downloads a `.pem`) — base64-encode it (`base64 < key.pem | tr -d
+  '\n'`) to get `APP_PRIVATE_KEY`.
+- Note the **App ID** — this is `APP_ID`.
+- **Install** the App on the repos you want Barney to watch.
+
+### 2. Run Barney
 
 ```sh
-cp .env.example .env    # add your webhook secret, GitHub token, and agent API key
+cp .env.example .env    # add WEBHOOK_SECRET, APP_ID, APP_PRIVATE_KEY, and an agent API key
 docker compose up --build
 ```
 
-### 2. Point GitHub at it
-
-Add a webhook on your repo (Settings → Webhooks) pointing to `http://<your-host>:8080/webhook`
-with your `WEBHOOK_SECRET`. For local development:
+For local development, forward the App's webhook deliveries to your machine:
 
 ```sh
 gh webhook forward --repo=your-org/your-repo --events=issues,issue_comment,pull_request,push \
@@ -57,7 +71,8 @@ gh webhook forward --repo=your-org/your-repo --events=issues,issue_comment,pull_
 
 ### 3. Add the manifest
 
-Commit this to your repo — it hands every issue **assigned to your bot account** to the agent:
+Commit this to your repo — it hands every issue **assigned to the App's bot account** to the
+agent:
 
 ```yaml
 # .barney/manifest.yaml
@@ -65,7 +80,7 @@ version: "v0"
 triggers:
   - id: assigned-to-barney
     event: issues.assigned
-    filter: payload.issue.assignees.exists(u, u.login == 'barney-bot')
+    filter: payload.issue.assignees.exists(u, u.login == 'barney[bot]')
     agent: opencode
     prompt_template: |
       Issue: {{ .payload.issue.title }}
@@ -75,7 +90,7 @@ triggers:
       Implement the change described above and make sure the tests pass.
 ```
 
-Replace `barney-bot` with your bot account's login. Now anyone can assign an issue to the
+Replace `barney[bot]` with your App's bot login (`<your-app-slug>[bot]`). Now anyone can assign an issue to the
 bot and Barney will clone the repo and run the agent on it. (Prefer labels?
 `filter: payload.issue.labels.exists(l, l.name == 'agent-task')` with `event: issues.opened`
 works the same way.)
@@ -149,21 +164,24 @@ on the same repo are processed one at a time. The agent runs inside that workspa
 | `BARNEY_BRANCH`      | The event branch checked out in the workspace            |
 | `BARNEY_BASE_BRANCH` | Default branch, or the PR base for `pull_request` events |
 
-Git-over-HTTPS is pre-authenticated with `GITHUB_TOKEN` via environment config — no
-credentials are written to disk — so `git push` just works inside the workspace, and `gh`
-picks up the same token. All other daemon environment variables (agent API keys,
-`OPENCODE_*` settings) are inherited too. Whatever the agent does — run tests, fix bugs,
-comment, commit, push, open PRs — happens through those tools and is defined by your prompt.
+Git-over-HTTPS is authenticated per event with a GitHub App installation token — no static
+credential and nothing written to disk — so `git push` just works inside the workspace, and
+`gh` picks up the same token via `GH_TOKEN`. The token is minted fresh for each event, scoped
+to only that event's repository, and expires within the hour regardless of what Barney does
+with it. All other daemon environment variables (agent API keys, `OPENCODE_*` settings) are
+inherited too. Whatever the agent does — run tests, fix bugs, comment, commit, push, open PRs —
+happens through those tools and is defined by your prompt.
 
 ## Configuration
 
-| Environment      | Default                      | Required | Notes                                  |
-| ---------------- | ---------------------------- | -------- | -------------------------------------- |
-| `WEBHOOK_SECRET` | —                            | yes      | HMAC secret for webhook validation     |
-| `GITHUB_TOKEN`   | —                            | yes      | Git-over-HTTPS auth and `gh`; inherited by agents |
-| `PORT`           | `8080`                       | no       |                                        |
-| `WORKSPACE_ROOT` | `/var/lib/barney/workspaces` | no       | Where repos are cloned                 |
-| `EVENT_TIMEOUT`  | `30m`                        | no       | Per-event processing limit             |
+| Environment        | Default                      | Required | Notes                                             |
+| ------------------- | ---------------------------- | -------- | -------------------------------------------------- |
+| `WEBHOOK_SECRET`   | —                            | yes      | HMAC secret configured on the GitHub App's webhook |
+| `APP_ID`           | —                            | yes      | GitHub App ID                                      |
+| `APP_PRIVATE_KEY`  | —                            | yes      | Base64-encoded PEM App private key                 |
+| `PORT`             | `8080`                       | no       |                                                     |
+| `WORKSPACE_ROOT`   | `/var/lib/barney/workspaces` | no       | Where repos are cloned                             |
+| `EVENT_TIMEOUT`    | `30m`                        | no       | Per-event processing limit, capped at 55m (installation tokens expire after 1h) |
 
 ### Agent credentials (stateless)
 
@@ -183,8 +201,8 @@ settings.
 
 ## Security
 
-The agent runs with your `GITHUB_TOKEN` and a bash shell. Two different things gate it, and
-they protect against different threats:
+The agent runs with a GitHub App installation token and a bash shell. Two different things
+gate it, and they protect against different threats:
 
 - **The manifest filter controls *who* can trigger a run** — e.g. "only when a maintainer
   applies the `agent-task` label."
@@ -200,21 +218,29 @@ What Barney does to limit the blast radius:
   pull request's own base) — never from the event's checked-out working tree. A pull request
   from a fork can still be reviewed by an agent, but it cannot ship its own triggers or prompts;
   only someone with write access to the base branch can change what Barney runs.
-- **`WEBHOOK_SECRET` is stripped from the agent's environment.** It has no legitimate use there,
-  and leaking it would let an attacker forge future webhook deliveries.
+- **Tokens are minted per event, scoped to one repository, and expire within the hour.** Unlike
+  a personal access token, there's no long-lived credential to leak: even if a prompt-injected
+  command exfiltrates the token, it's useless outside that one repo and dead within the hour.
+  This is enforced by construction — it's not something you have to remember to configure.
+- **`WEBHOOK_SECRET` and the App's private key are stripped from the agent's environment.**
+  Neither has a legitimate use there; leaking the webhook secret would let an attacker forge
+  future deliveries, and leaking the private key would let them mint tokens for every repo the
+  App can reach — far worse than a single installation token.
 
 What Barney does **not** do: sandbox the agent, restrict its filesystem or network access, or
-inspect prompt content for injected instructions. It runs with the same privileges as the
-daemon process.
+inspect prompt content for injected instructions. Within the one repo its token is scoped to,
+it runs with the same privileges as the daemon process.
 
 Practical guidance:
 
-- Use a **scoped token** — limited to the repos Barney manages, not a personal token with
-  org-wide access.
+- Grant the App only the permissions triggers actually need (Contents, Pull requests, Issues);
+  don't reach for broader scopes "just in case."
+- Install the App only on the repos Barney should watch — installation is itself an access
+  boundary.
 - On public repos, gate on **label + triage permission** or a **trusted author allowlist**, and
   still assume the payload body itself is hostile input.
-- Treat running Barney like giving a contributor shell access to your CI secrets, because
-  that's what it is.
+- Treat running Barney like giving a contributor shell access to your CI secrets for the
+  duration of one event, because that's what it is.
 
 ## Known limitations (v0)
 

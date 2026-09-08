@@ -3,16 +3,19 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/deploid/barney/internal/ghapp"
 	"github.com/deploid/barney/internal/gitcmd"
 	"github.com/deploid/barney/pkg/agent"
 	"github.com/deploid/barney/pkg/manifest"
@@ -20,14 +23,21 @@ import (
 	"github.com/deploid/barney/pkg/workspace"
 )
 
-const defaultEventTimeout = 30 * time.Minute
+const (
+	defaultEventTimeout = 30 * time.Minute
+	// maxEventTimeout keeps events well under the 1-hour lifetime of a
+	// GitHub App installation token, so the token used to set up the
+	// workspace and handed to the agent can't expire mid-run.
+	maxEventTimeout = 55 * time.Minute
+)
 
 // Config holds daemon configuration from flags or environment.
 type Config struct {
 	Port          string
 	WebhookSecret string
 	WorkspaceRoot string
-	GitHubToken   string
+	AppID         string
+	AppPrivateKey []byte
 	EventTimeout  time.Duration
 }
 
@@ -47,7 +57,8 @@ func LoadConfig() (*Config, error) {
 	port := envOrFlag(fs, "port", "PORT", "8080", "HTTP listen port")
 	secret := fs.String("webhook-secret", os.Getenv("WEBHOOK_SECRET"), "GitHub webhook HMAC secret (required)")
 	root := envOrFlag(fs, "workspace-root", "WORKSPACE_ROOT", "/var/lib/barney/workspaces", "Workspace storage root")
-	token := fs.String("github-token", os.Getenv("GITHUB_TOKEN"), "GitHub token for git/gh operations (required)")
+	appID := fs.String("app-id", os.Getenv("APP_ID"), "GitHub App ID (required)")
+	appKeyB64 := fs.String("app-private-key", os.Getenv("APP_PRIVATE_KEY"), "Base64-encoded PEM GitHub App private key (required)")
 	timeoutStr := envOrFlag(fs, "event-timeout", "EVENT_TIMEOUT", "30m", "Per-event processing timeout (Go duration)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -58,20 +69,31 @@ func LoadConfig() (*Config, error) {
 	if err != nil || timeout <= 0 {
 		return nil, fmt.Errorf("invalid --event-timeout / EVENT_TIMEOUT value %q", *timeoutStr)
 	}
+	if timeout > maxEventTimeout {
+		return nil, fmt.Errorf("--event-timeout / EVENT_TIMEOUT %q exceeds %s: GitHub App installation tokens expire after 1 hour", *timeoutStr, maxEventTimeout)
+	}
 
 	cfg := &Config{
 		Port:          *port,
 		WebhookSecret: *secret,
 		WorkspaceRoot: *root,
-		GitHubToken:   *token,
+		AppID:         *appID,
 		EventTimeout:  timeout,
 	}
 	if cfg.WebhookSecret == "" {
 		return nil, fmt.Errorf("--webhook-secret / WEBHOOK_SECRET is required")
 	}
-	if cfg.GitHubToken == "" {
-		return nil, fmt.Errorf("--github-token / GITHUB_TOKEN is required")
+	if cfg.AppID == "" {
+		return nil, fmt.Errorf("--app-id / APP_ID is required")
 	}
+	if *appKeyB64 == "" {
+		return nil, fmt.Errorf("--app-private-key / APP_PRIVATE_KEY is required")
+	}
+	key, err := base64.StdEncoding.DecodeString(*appKeyB64)
+	if err != nil {
+		return nil, fmt.Errorf("--app-private-key / APP_PRIVATE_KEY: invalid base64: %w", err)
+	}
+	cfg.AppPrivateKey = key
 	if cfg.Port == "" {
 		cfg.Port = "8080"
 	}
@@ -85,13 +107,15 @@ func LoadConfig() (*Config, error) {
 type Orchestrator struct {
 	Workspace    *workspace.Manager
 	Registry     *agent.Registry
+	Auth         *ghapp.AppAuth
 	EventTimeout time.Duration
 }
 
-// HandleEvent processes a normalized webhook event end-to-end: workspace
-// setup, manifest evaluation, and agent execution for every matched trigger.
-// What the agent does with its bash access (commit, push, open a PR) is
-// entirely up to the prompt; Barney never touches git delivery.
+// HandleEvent processes a normalized webhook event end-to-end: minting a
+// repo-scoped installation token, workspace setup, manifest evaluation, and
+// agent execution for every matched trigger. What the agent does with its
+// bash access (commit, push, open a PR) is entirely up to the prompt;
+// Barney never touches git delivery.
 func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 	timeout := o.EventTimeout
 	if timeout <= 0 {
@@ -111,11 +135,21 @@ func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 	}
 	log.Printf("event %s %s for %s/%s", ev.EventType, ev.EventID, ev.RepoOwner, ev.RepoName)
 
+	if event.InstallationID == 0 || event.RepoID == 0 {
+		log.Printf("event %s %s missing installation/repository id (not delivered via a GitHub App install?); skipping", ev.EventType, ev.EventID)
+		return
+	}
+	token, err := o.Auth.InstallationToken(ctx, event.InstallationID, event.RepoID)
+	if err != nil {
+		log.Printf("mint installation token for %s/%s: %v", ev.RepoOwner, ev.RepoName, err)
+		return
+	}
+
 	lock := o.Workspace.LockFor(ev)
 	lock.Lock()
 	defer lock.Unlock()
 
-	path, branch, err := o.Workspace.Setup(ctx, ev)
+	path, branch, err := o.Workspace.Setup(ctx, ev, token)
 	if err != nil {
 		log.Printf("workspace setup failed for %s/%s: %v", ev.RepoOwner, ev.RepoName, err)
 		return
@@ -140,14 +174,14 @@ func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 		return
 	}
 
-	o.runTriggers(ctx, matched, event, ev, path, branch, baseBranch)
+	o.runTriggers(ctx, matched, event, ev, path, branch, baseBranch, token)
 	log.Printf("event %s %s complete; delivery is up to the agent", event.EventType, event.EventID)
 }
 
 // runTriggers executes each matched trigger's agent sequentially in the event
 // workspace with the BARNEY_* environment contract in place.
-func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, ev workspace.Event, path, branch, baseBranch string) {
-	env := agentEnvFor(event, ev, branch, baseBranch)
+func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, ev workspace.Event, path, branch, baseBranch, token string) {
+	env := agentEnvFor(event, ev, branch, baseBranch, token)
 	for _, mt := range matched {
 		h, err := o.Registry.Get(mt.Trigger.Agent)
 		if err != nil {
@@ -165,18 +199,25 @@ func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.Match
 	}
 }
 
-// agentEnvFor builds the BARNEY_* environment contract handed to every agent
-// process: everything a bash-driven workflow needs to commit, push, and open
-// pull requests on its own. GitHub auth (GITHUB_TOKEN/GH_TOKEN and
-// git-over-HTTPS config) is inherited from the daemon environment.
-func agentEnvFor(event *webhook.NormalizedEvent, ev workspace.Event, branch, baseBranch string) map[string]string {
-	return map[string]string{
+// agentEnvFor builds the environment handed to every agent process: the
+// BARNEY_* context a bash-driven workflow needs, plus GitHub auth scoped to
+// this one event. Unlike a static PAT, the installation token is per-event
+// and short-lived, so it's injected directly here rather than left for the
+// agent to inherit from the daemon's ambient environment.
+func agentEnvFor(event *webhook.NormalizedEvent, ev workspace.Event, branch, baseBranch, token string) map[string]string {
+	env := map[string]string{
 		"BARNEY_EVENT_TYPE":  string(event.EventType),
 		"BARNEY_EVENT_ID":    event.EventID,
 		"BARNEY_REPO":        ev.RepoOwner + "/" + ev.RepoName,
 		"BARNEY_BRANCH":      branch,
 		"BARNEY_BASE_BRANCH": baseBranch,
+		"GH_TOKEN":           token,
 	}
+	for _, kv := range gitcmd.AuthEnv(token) {
+		k, v, _ := strings.Cut(kv, "=")
+		env[k] = v
+	}
+	return env
 }
 
 // isPullEvent reports whether the event carries a pull_request payload.
@@ -239,10 +280,10 @@ func main() {
 		log.Fatalf("configuration: %v", err)
 	}
 
-	// Authenticated git and `gh` live in the process environment, so every
-	// subprocess inherits them: Barney's clone/fetch calls and the agent's
-	// own commit/push/PR workflows.
-	gitcmd.ConfigureAuth(cfg.GitHubToken)
+	auth, err := ghapp.New(cfg.AppID, cfg.AppPrivateKey)
+	if err != nil {
+		log.Fatalf("github app auth: %v", err)
+	}
 
 	wsm, err := workspace.NewManager(cfg.WorkspaceRoot)
 	if err != nil {
@@ -255,6 +296,7 @@ func main() {
 	orchestrator := &Orchestrator{
 		Workspace:    wsm,
 		Registry:     registry,
+		Auth:         auth,
 		EventTimeout: cfg.EventTimeout,
 	}
 

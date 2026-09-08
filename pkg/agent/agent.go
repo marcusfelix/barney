@@ -125,17 +125,25 @@ func (h *OpenCodeHarness) Execute(ctx context.Context, opts ExecutionOpts) (*Exe
 	return res, nil
 }
 
-// filteredEnviron returns the daemon's environment with WEBHOOK_SECRET
-// stripped. The agent has no legitimate use for it, and prompt injection
-// (an untrusted issue/comment body telling the agent to run "env" or read
-// its own process environment) would otherwise hand an attacker the means
-// to forge future webhook deliveries.
+// daemonOnlySecrets are environment variables the agent has no legitimate
+// use for. Prompt injection (an untrusted issue/comment body telling the
+// agent to run "env" or read its own process environment) would otherwise
+// hand an attacker the means to forge webhook deliveries or, worse, mint
+// GitHub App installation tokens for every repo the App can reach.
+var daemonOnlySecrets = []string{"WEBHOOK_SECRET=", "APP_ID=", "APP_PRIVATE_KEY="}
+
+// filteredEnviron returns the daemon's environment with daemonOnlySecrets
+// stripped. The agent's own GitHub auth (a short-lived, repo-scoped
+// installation token) is injected separately per event via opts.Env.
 func filteredEnviron() []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
+outer:
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "WEBHOOK_SECRET=") {
-			continue
+		for _, secret := range daemonOnlySecrets {
+			if strings.HasPrefix(kv, secret) {
+				continue outer
+			}
 		}
 		out = append(out, kv)
 	}

@@ -39,12 +39,19 @@ type NormalizedEvent struct {
 	EventType EventType
 	// EventID is the X-GitHub-Delivery header value, GitHub's unique
 	// identifier for a webhook delivery.
-	EventID       string
-	RepoOwner     string
-	RepoName      string
-	CloneURL      string
-	DefaultBranch string
-	RawPayload    map[string]interface{}
+	EventID   string
+	RepoOwner string
+	RepoName  string
+	// RepoID is the numeric GitHub repository ID (payload.repository.id),
+	// used to scope a minted GitHub App installation token to this repo.
+	RepoID int64
+	// InstallationID is the GitHub App installation this event was
+	// delivered for (payload.installation.id). Zero when the webhook wasn't
+	// delivered on behalf of an App installation.
+	InstallationID int64
+	CloneURL       string
+	DefaultBranch  string
+	RawPayload     map[string]interface{}
 }
 
 // Handler processes normalized events.
@@ -156,6 +163,7 @@ func Normalize(eventType EventType, deliveryID string, body []byte) (*Normalized
 	}
 	normalizeEventID(event)
 	normalizeRepo(event)
+	event.InstallationID = numberAt(mapAt(payload, "installation"), "id")
 
 	if event.DefaultBranch == "" {
 		event.DefaultBranch = "main"
@@ -192,6 +200,7 @@ func normalizeRepo(event *NormalizedEvent) {
 		}
 	}
 	event.RepoName = str(repo, "name")
+	event.RepoID = numberAt(repo, "id")
 	event.DefaultBranch = str(repo, "default_branch")
 
 	event.CloneURL = str(repo, "clone_url")
@@ -209,6 +218,22 @@ func str(m map[string]interface{}, key string) string {
 	}
 	s, _ := m[key].(string)
 	return s
+}
+
+// numberAt returns the numeric field key as an int64, or 0 when absent.
+// GitHub payloads decode numbers as float64, but the field is accepted as
+// any Go numeric type for callers constructing payloads directly (tests).
+func numberAt(m map[string]interface{}, key string) int64 {
+	switch v := m[key].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	default:
+		return 0
+	}
 }
 
 // mapAt returns the nested object at key, or nil when absent.

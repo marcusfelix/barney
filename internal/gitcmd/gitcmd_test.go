@@ -3,6 +3,7 @@ package gitcmd
 import (
 	"context"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -31,9 +32,9 @@ func TestRunErrorsIncludeCommandAndStderr(t *testing.T) {
 }
 
 func TestAuthEnv(t *testing.T) {
-	env := authEnv("tok")
+	env := AuthEnv("tok")
 	if len(env) != 3 {
-		t.Fatalf("len(authEnv) = %d, want 3", len(env))
+		t.Fatalf("len(AuthEnv) = %d, want 3", len(env))
 	}
 	if !strings.Contains(env[2], "AUTHORIZATION: basic ") {
 		t.Errorf("extraheader = %q, want basic auth header", env[2])
@@ -43,26 +44,30 @@ func TestAuthEnv(t *testing.T) {
 	}
 }
 
-func TestConfigureAuth(t *testing.T) {
-	for _, k := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GH_TOKEN"} {
-		t.Setenv(k, "")
+func TestAuthEnvEmptyToken(t *testing.T) {
+	if env := AuthEnv(""); env != nil {
+		t.Errorf("AuthEnv(\"\") = %v, want nil", env)
+	}
+}
+
+func TestRunAuthedDoesNotLeakIntoProcessEnv(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	if _, err := Run(context.Background(), "", "init", "--initial-branch=main", dir); err != nil {
+		t.Fatalf("git init: %v", err)
 	}
 
-	ConfigureAuth("tok")
-
-	if got := os.Getenv("GH_TOKEN"); got != "tok" {
-		t.Errorf("GH_TOKEN = %q, want tok", got)
+	// RunAuthed's auth env is scoped to its own subprocess: it must not
+	// persist in on-disk git config or leak into the test's own process env.
+	if _, err := RunAuthed(context.Background(), dir, "bogus-token", "rev-parse", "--is-inside-work-tree"); err != nil {
+		t.Fatalf("RunAuthed() error = %v", err)
 	}
-	if got := os.Getenv("GIT_CONFIG_COUNT"); got != "1" {
-		t.Errorf("GIT_CONFIG_COUNT = %q, want 1", got)
+	if out, err := Run(context.Background(), dir, "config", "--get", "http.extraheader"); err == nil {
+		t.Errorf("expected no persisted http.extraheader in on-disk config, got %q", out)
 	}
-	if strings.Contains(os.Getenv("GIT_CONFIG_VALUE_0"), "tok") {
-		t.Error("token must only appear base64-encoded")
-	}
-
-	// An empty token must be a no-op, never clearing existing auth.
-	ConfigureAuth("")
-	if got := os.Getenv("GH_TOKEN"); got != "tok" {
-		t.Errorf("GH_TOKEN = %q after empty ConfigureAuth, want unchanged", got)
+	if got := os.Getenv("GIT_CONFIG_COUNT"); got != "" {
+		t.Errorf("GIT_CONFIG_COUNT leaked into the test process env: %q", got)
 	}
 }
