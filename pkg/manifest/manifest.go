@@ -6,11 +6,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/template"
 
+	"github.com/deploid/barney/internal/gitcmd"
 	"github.com/google/cel-go/cel"
 	"gopkg.in/yaml.v3"
 )
@@ -40,19 +39,24 @@ type MatchedTrigger struct {
 	Prompt  string
 }
 
-// Load reads and parses .barney/manifest.yaml from the given workspace root.
-// Returns (nil, nil) when the manifest does not exist so callers can exit
-// silently.
-func Load(workspaceDir string) (*Manifest, error) {
-	path := filepath.Join(workspaceDir, ManifestPath)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read manifest %s: %w", path, err)
+// LoadFromRef reads and parses .barney/manifest.yaml as committed at ref
+// (e.g. "origin/main"), never from the working tree. Returns (nil, nil) when
+// the manifest does not exist at ref.
+//
+// This matters for pull_request events: the workspace checks out the PR's
+// own head so the agent can operate on it, but that head may belong to an
+// untrusted fork. Reading the manifest from the trusted base ref instead of
+// the checked-out tree means a fork can't ship its own triggers or prompts.
+func LoadFromRef(ctx context.Context, repoDir, ref string) (*Manifest, error) {
+	target := ref + ":" + ManifestPath
+	if _, err := gitcmd.Run(ctx, repoDir, "cat-file", "-e", target); err != nil {
+		return nil, nil
 	}
-	return Parse(data)
+	data, err := gitcmd.Run(ctx, repoDir, "show", target)
+	if err != nil {
+		return nil, fmt.Errorf("read manifest at %s: %w", target, err)
+	}
+	return Parse([]byte(data))
 }
 
 // Parse parses manifest YAML content.

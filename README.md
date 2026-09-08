@@ -4,28 +4,37 @@
   <img src="website/assets/barney-white.jpg" width="360" alt="Barney, a purple T-Rex roaring YOLO">
 </p>
 
-**Put an AI developer on your team with one file.**
+**A self-hosted daemon that turns GitHub webhooks into agent runs.**
 
-Barney is a self-hosted service that turns GitHub events into agent work. Drop a
-`.barney/manifest.yaml` into your repo, and every issue, comment, or push can dispatch an AI
-agent (like [opencode](https://opencode.ai)) to do anything you can describe.
+Barney listens for GitHub events, checks out your repo into a workspace it keeps warm between
+runs, and — when a rule in `.barney/manifest.yaml` matches — hands a rendered prompt to an AI
+agent (like [opencode](https://opencode.ai)). The agent gets a real git checkout, your GitHub
+token, and bash. It commits, pushes, comments, and opens pull requests itself; Barney's job
+ends the moment the agent starts.
 
-No workflow files, no CI scripts, no runner minutes. You describe *when* the agent should act
-and *what* to ask it. Barney handles the plumbing — secure webhook intake, workspace cloning,
-branching — and the agent handles the rest in bash.
+This is a trade: you run and operate the daemon yourself, instead of using GitHub Actions or a
+hosted agent product. In exchange you get a persistent per-repo workspace (no full re-clone
+per event), one daemon that can watch many repos under a single set of credentials, and a
+trigger config that lives in the repo instead of a settings page.
 
 ## Why Barney
 
 - **One file per repo** — `.barney/manifest.yaml` lives in your repo, versioned with your code.
-  Change triggers or prompts like any other config.
+  Change triggers or prompts like any other config, review them in PRs, revert them like any
+  other commit.
 - **Bash is all you need** — the agent gets a real checkout, your GitHub token, and plain
   `git` + `gh`. Commits, pushes, comments, pull requests are just shell commands the agent
   runs. Build your automation in prompts and `AGENTS.md` files; Barney never has to change.
+- **Warm workspace** — each repo keeps a persistent clone under `WORKSPACE_ROOT` instead of a
+  fresh checkout per run, so repeated events on the same repo skip the full clone.
 - **Your infra, your keys** — self-hosted. Your token and agent credentials never leave your
   environment.
 - **Any agent** — pluggable harnesses; ships with opencode out of the box.
 - **Event-driven** — reacts to issues, issue comments, pull requests, PR review comments, and
   pushes.
+
+Read the [Security](#security) section before pointing this at a public repo — the manifest
+filter controls *who* can trigger a run, not what's *in* the payload the agent reads.
 
 ## Quick start
 
@@ -174,15 +183,45 @@ settings.
 
 ## Security
 
-The agent runs with your `GITHUB_TOKEN` and can commit and push whatever it produces — the
-manifest filter is the only gate. On public repos, avoid permissive filters (e.g. trusting any
-commenter); that's arbitrary code execution on your host. Prefer label gates that require
-triage permission, or restrict by author login. Use a scoped token.
+The agent runs with your `GITHUB_TOKEN` and a bash shell. Two different things gate it, and
+they protect against different threats:
+
+- **The manifest filter controls *who* can trigger a run** — e.g. "only when a maintainer
+  applies the `agent-task` label."
+- **It does not control what's *in* the payload.** An issue title, body, or comment is
+  attacker-controlled text that gets rendered straight into the agent's prompt. Anyone who can
+  get a trusted actor to satisfy your filter (by commenting, labeling, or assigning) can smuggle
+  instructions into that text — this is prompt injection, and the agent's bash access makes it
+  as powerful as whatever is in its environment.
+
+What Barney does to limit the blast radius:
+
+- **The manifest is always read from the repository's base branch** (the default branch, or a
+  pull request's own base) — never from the event's checked-out working tree. A pull request
+  from a fork can still be reviewed by an agent, but it cannot ship its own triggers or prompts;
+  only someone with write access to the base branch can change what Barney runs.
+- **`WEBHOOK_SECRET` is stripped from the agent's environment.** It has no legitimate use there,
+  and leaking it would let an attacker forge future webhook deliveries.
+
+What Barney does **not** do: sandbox the agent, restrict its filesystem or network access, or
+inspect prompt content for injected instructions. It runs with the same privileges as the
+daemon process.
+
+Practical guidance:
+
+- Use a **scoped token** — limited to the repos Barney manages, not a personal token with
+  org-wide access.
+- On public repos, gate on **label + triage permission** or a **trusted author allowlist**, and
+  still assume the payload body itself is hostile input.
+- Treat running Barney like giving a contributor shell access to your CI secrets, because
+  that's what it is.
 
 ## Known limitations (v0)
 
 - Events are processed in memory; a crash mid-event loses it (GitHub redeliveries are not
   deduplicated).
+- No sandboxing: the agent runs with the daemon's full (filtered) environment and network
+  access.
 - The opencode CLI is installed at image build time (pin the version for production).
 
 ## Development

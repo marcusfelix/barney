@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Barney — tame a code dinosaur</title>
-<meta name="description" content="One YAML file in your repo. Every GitHub issue, comment, or push awakens a code dinosaur that does the work and drags back a pull request.">
+<meta name="description" content="One YAML file in your repo. Every GitHub issue, comment, or push awakens a self-hosted code dinosaur that does whatever the prompt says — commit, comment, review, open a PR, or something else entirely.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&display=swap" rel="stylesheet">
@@ -271,8 +271,9 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
     <h1>He ate the backlog!</h1>
     <p class="sub">
       <b>Tame a self-hosted code dinosaur</b> that never sleeps: assign it an issue, drop a
-      <b>/barney</b> comment, push to main — it wakes up, does the work, and drags back a
-      <b>pull request</b>. One YAML file. No runners. It only bites flaky tests.
+      <b>/barney</b> comment, push to main — it wakes up and does whatever the prompt says: fix
+      a bug, leave a review, drag back a <b>pull request</b>, or just comment back. One YAML
+      file, one prompt, teeth as sharp as you write them.
     </p>
     <div class="cta">
       <a class="btn btn-primary" href="#quickstart">get started</a>
@@ -371,7 +372,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
       <li><span class="sym">❯</span><b>event</b> — <code>issues</code>, <code>issue_comment</code>, <code>pull_request</code>, <code>pull_request_review_comment</code>, <code>push</code></li>
       <li><span class="sym">❯</span><b>filter</b> — a CEL expression over the raw GitHub payload: labels, authors, draft state, branches, anything</li>
       <li><span class="sym">❯</span><b>agent</b> — pluggable harnesses; opencode ships built-in, wire in your own</li>
-      <li><span class="sym">❯</span><b>prompt_template</b> — Go templates with the full event payload; you write the task, the agent drags back the PR</li>
+      <li><span class="sym">❯</span><b>prompt_template</b> — Go templates with the full event payload; you write the task, the agent decides how to finish it — commit, comment, review, open a PR, whatever bash can do</li>
     </ul>
   </div>
 </section>
@@ -388,7 +389,8 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
           A purple Tyrannosaurus that evolved specifically to read <b>GitHub webhooks</b>.
           459 million years of evolution led to this: it clones your repo, branches off, runs
           your agent of choice inside the fresh kill, and hands it your token — the agent
-          drags the remains home as a <b>pull request</b>, with plain <code>git</code> and
+          finishes the job however your prompt says: commit and push, leave a comment, open a
+          <b>pull request</b>, whatever bash can do, with plain <code>git</code> and
           <code>gh</code>. Fully domesticated. House-trained. <b>Revertible with
           <code>git revert</code></b>.
         </p>
@@ -402,13 +404,13 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
   <div class="wrap">
     <div class="kicker">why keep a dinosaur</div>
     <h2>A workhorse from the Cretaceous</h2>
-    <p class="lead">Real git, real branches, real PRs. No magic you can't inspect — just very old, very reliable teeth.</p>
+    <p class="lead">Real git, real branches, real commits — a PR when your prompt asks for one, a comment or a straight push when it doesn't. No magic you can't inspect, just very old, very reliable teeth.</p>
 
     <div class="features">
       <div class="card">
         <div class="icon">01</div>
         <h3>Speaks fluent git</h3>
-        <p>Every event gets its own branch. Changes come back as normal PRs — reviewable, revertible, blameable. Fresh meat, every time.</p>
+        <p>Every event gets its own branch. What happens to it — a PR, a comment, a pushed fix — is entirely up to your prompt. Fresh meat, every time.</p>
       </div>
       <div class="card">
         <div class="icon">02</div>
@@ -417,8 +419,8 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
       </div>
       <div class="card">
         <div class="icon">03</div>
-        <h3>Eats no runner minutes</h3>
-        <p>Self-hosted and always-on. It feeds on one API key and the occasional issue label — not your CI budget.</p>
+        <h3>Runs on your own turf</h3>
+        <p>Self-hosted and always-on, trading CI runner minutes for a server you feed and water yourself — one API key, one box, your call.</p>
       </div>
       <div class="card">
         <div class="icon">04</div>
@@ -428,7 +430,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
       <div class="card">
         <div class="icon">05</div>
         <h3>Surprisingly trainable</h3>
-        <p>opencode works out of the box. The harness interface is one ID + one Execute call — teach the old lizard new tricks.</p>
+        <p>opencode works out of the box, but the harness interface is one ID + one Execute call — teach the old lizard entirely new tricks: linting, triage, docs, anything bash can reach.</p>
       </div>
       <div class="card">
         <div class="icon">06</div>
@@ -470,7 +472,7 @@ footer .right { margin-left: auto; display: flex; gap: 20px; }
       <div class="step">
         <span class="n">05</span>
         <span class="cmd">» drag home</span>
-        <span class="desc"><b>The agent delivers itself</b> — commit, push, PR opened with plain <b>git + gh</b>. Bash is all it needs; Barney never touches your delivery. <span class="sym">✓</span></span>
+        <span class="desc"><b>The agent delivers itself</b> — commit, push, comment, open a PR, whatever the prompt calls for, with plain <b>git + gh</b>. Bash is all it needs; Barney never touches your delivery. <span class="sym">✓</span></span>
       </div>
     </div>
   </div>
@@ -505,12 +507,14 @@ git add .barney/manifest.yaml && git commit -m "barney: awaken" && git push
     </div>
 
     <div class="sec-box">
-      <b>⛨ fence it in</b> — the dino runs with your token and pushes whatever it produces, so
-      the manifest filter is the only gate: on public repos prefer label gates or trusted
-      logins, never permissive ones. And give Barney <b>its own GitHub account</b> — name it
-      whatever you like (<code>barney-bot</code>, <code>trex-devops</code>,
-      <code>caveman-coder</code>). Commits and PRs clearly come from the dinosaur, its token
-      stays scoped to what it needs, and revoking it never touches your own account.
+      <b>⛨ fence it in</b> — the manifest filter gates <i>who</i> can wake the dinosaur, not
+      what's in the payload it reads: an issue body is attacker-controlled text handed to the
+      agent's bash shell, so treat this like giving a contributor shell access to your CI
+      secrets. On public repos, gate on label + triage permission or a trusted-author allowlist.
+      Give Barney <b>its own scoped GitHub account</b> — name it whatever you like
+      (<code>barney-bot</code>, <code>trex-devops</code>, <code>caveman-coder</code>) — so
+      commits and PRs clearly come from the dinosaur and revoking its token never touches your
+      own account. Full writeup in the <a href="https://github.com/marcusfelix/barney#security">README</a>.
     </div>
   </div>
 </section>
@@ -536,6 +540,7 @@ const LINES = [
   { cls: "warn",  text: "» opencode: \"Issue: Fix the login bug…\" (chomp)", pause: 1600 },
   { cls: "ok",    text: "  ✓ 3 files eaten — er, changed · tests green", pause: 700 },
   { cls: "ok",    text: "  ✓ PR #43 dragged back to base", pause: 800 },
+  { cls: "dim",   text: "# next time: maybe a comment, a fix, a review — you write the prompt.", pause: 900 },
   { cls: "dim",   text: "# barney returns to its slumber." },
 ];
 

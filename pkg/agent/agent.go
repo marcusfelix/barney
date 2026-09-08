@@ -99,7 +99,7 @@ func (h *OpenCodeHarness) Execute(ctx context.Context, opts ExecutionOpts) (*Exe
 
 	cmd := exec.CommandContext(ctx, h.Bin, "run", opts.Prompt)
 	cmd.Dir = opts.WorkDir
-	cmd.Env = append(os.Environ(), nameValueEnv(opts.Env)...)
+	cmd.Env = append(filteredEnviron(), nameValueEnv(opts.Env)...)
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -123,6 +123,23 @@ func (h *OpenCodeHarness) Execute(ctx context.Context, opts ExecutionOpts) (*Exe
 		return res, fmt.Errorf("opencode execution failed (exit %d): %w", res.ExitCode, err)
 	}
 	return res, nil
+}
+
+// filteredEnviron returns the daemon's environment with WEBHOOK_SECRET
+// stripped. The agent has no legitimate use for it, and prompt injection
+// (an untrusted issue/comment body telling the agent to run "env" or read
+// its own process environment) would otherwise hand an attacker the means
+// to forge future webhook deliveries.
+func filteredEnviron() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "WEBHOOK_SECRET=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // nameValueEnv converts a map to KEY=value environment entries.

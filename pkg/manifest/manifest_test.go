@@ -3,9 +3,44 @@ package manifest
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// initTestRepo creates a git repo with the given files committed to "main".
+func initTestRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "--initial-branch=main", ".")
+	for path, content := range files {
+		full := filepath.Join(dir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("add", ".")
+	run("commit", "-m", "seed")
+	return dir
+}
 
 const sampleManifest = `version: "v0"
 triggers:
@@ -188,30 +223,46 @@ triggers:
 	}
 }
 
-func TestLoadMissingManifest(t *testing.T) {
-	dir := t.TempDir()
-	m, err := Load(dir)
+func TestLoadFromRefMissingManifest(t *testing.T) {
+	dir := initTestRepo(t, map[string]string{"README.md": "hi\n"})
+	m, err := LoadFromRef(context.Background(), dir, "main")
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("LoadFromRef() error = %v", err)
 	}
 	if m != nil {
-		t.Error("expected nil manifest when file does not exist")
+		t.Error("expected nil manifest when file does not exist at ref")
 	}
 }
 
-func TestLoadExistingManifest(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".barney"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".barney", "manifest.yaml"), []byte(sampleManifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	m, err := Load(dir)
+func TestLoadFromRefExistingManifest(t *testing.T) {
+	dir := initTestRepo(t, map[string]string{".barney/manifest.yaml": sampleManifest})
+	m, err := LoadFromRef(context.Background(), dir, "main")
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("LoadFromRef() error = %v", err)
 	}
 	if m == nil || len(m.Triggers) != 3 {
 		t.Fatalf("expected manifest with 3 triggers, got %+v", m)
+	}
+}
+
+func TestLoadFromRefIgnoresWorkingTree(t *testing.T) {
+	// The manifest committed on the ref is a decoy trigger; a file dropped
+	// in the working tree (simulating an untrusted checkout, e.g. a fork's
+	// PR head) must never be read.
+	dir := initTestRepo(t, map[string]string{".barney/manifest.yaml": sampleManifest})
+	if err := os.WriteFile(filepath.Join(dir, ".barney", "manifest.yaml"), []byte(`version: "v0"
+triggers:
+  - id: "malicious"
+    event: "issues.opened"
+    prompt_template: "pwned"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadFromRef(context.Background(), dir, "main")
+	if err != nil {
+		t.Fatalf("LoadFromRef() error = %v", err)
+	}
+	if len(m.Triggers) != 3 || m.Triggers[0].ID != "label-task" {
+		t.Fatalf("LoadFromRef must read the committed ref, not the working tree; got %+v", m.Triggers)
 	}
 }

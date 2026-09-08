@@ -122,13 +122,15 @@ func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 	}
 	log.Printf("workspace ready at %s on branch %s", path, branch)
 
-	m, err := manifest.Load(path)
+	baseBranch := baseBranchFor(event, ev.DefaultBranch)
+
+	m, err := manifest.LoadFromRef(ctx, path, "origin/"+baseBranch)
 	if err != nil {
 		log.Printf("failed to load manifest for %s/%s: %v", ev.RepoOwner, ev.RepoName, err)
 		return
 	}
 	if m == nil {
-		log.Printf("no manifest in %s; skipping", path)
+		log.Printf("no manifest on %s for %s/%s; skipping", baseBranch, ev.RepoOwner, ev.RepoName)
 		return
 	}
 
@@ -138,14 +140,14 @@ func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 		return
 	}
 
-	o.runTriggers(ctx, matched, event, ev, path, branch)
+	o.runTriggers(ctx, matched, event, ev, path, branch, baseBranch)
 	log.Printf("event %s %s complete; delivery is up to the agent", event.EventType, event.EventID)
 }
 
 // runTriggers executes each matched trigger's agent sequentially in the event
 // workspace with the BARNEY_* environment contract in place.
-func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, ev workspace.Event, path, branch string) {
-	env := agentEnvFor(event, ev, branch)
+func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, ev workspace.Event, path, branch, baseBranch string) {
+	env := agentEnvFor(event, ev, branch, baseBranch)
 	for _, mt := range matched {
 		h, err := o.Registry.Get(mt.Trigger.Agent)
 		if err != nil {
@@ -167,13 +169,13 @@ func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.Match
 // process: everything a bash-driven workflow needs to commit, push, and open
 // pull requests on its own. GitHub auth (GITHUB_TOKEN/GH_TOKEN and
 // git-over-HTTPS config) is inherited from the daemon environment.
-func agentEnvFor(event *webhook.NormalizedEvent, ev workspace.Event, branch string) map[string]string {
+func agentEnvFor(event *webhook.NormalizedEvent, ev workspace.Event, branch, baseBranch string) map[string]string {
 	return map[string]string{
 		"BARNEY_EVENT_TYPE":  string(event.EventType),
 		"BARNEY_EVENT_ID":    event.EventID,
 		"BARNEY_REPO":        ev.RepoOwner + "/" + ev.RepoName,
 		"BARNEY_BRANCH":      branch,
-		"BARNEY_BASE_BRANCH": baseBranchFor(event, ev.DefaultBranch),
+		"BARNEY_BASE_BRANCH": baseBranch,
 	}
 }
 

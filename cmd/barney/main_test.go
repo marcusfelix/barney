@@ -83,18 +83,14 @@ func initBareRepo(t *testing.T) (bare string, seed string) {
 	return bare, seed
 }
 
-func seedManifest(t *testing.T, seed, bare string) {
+// commitAndPush stages everything in dir, commits with msg, and pushes to
+// bare using refspec (e.g. "main" or "attacker-fork:refs/pull/7/head").
+func commitAndPush(t *testing.T, dir, bare, msg, refspec string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(seed, ".barney"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(seed, ".barney", "manifest.yaml"), []byte(integrationManifest), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	run := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", args...)
-		cmd.Dir = seed
+		cmd.Dir = dir
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=barney", "GIT_AUTHOR_EMAIL=barney@test",
 			"GIT_COMMITTER_NAME=barney", "GIT_COMMITTER_EMAIL=barney@test",
@@ -104,8 +100,19 @@ func seedManifest(t *testing.T, seed, bare string) {
 		}
 	}
 	run("add", ".")
-	run("commit", "-m", "add manifest")
-	run("push", bare, "main")
+	run("commit", "-m", msg)
+	run("push", bare, refspec)
+}
+
+func seedManifest(t *testing.T, seed, bare, manifestYAML string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(seed, ".barney"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seed, ".barney", "manifest.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAndPush(t, seed, bare, "add manifest", "main")
 }
 
 func signBody(t *testing.T, secret string, body []byte) string {
@@ -131,7 +138,7 @@ func TestIntegrationWebhookToEndAgent(t *testing.T) {
 
 	secret := "test-secret"
 	bareRepo, seed := initBareRepo(t)
-	seedManifest(t, seed, bareRepo)
+	seedManifest(t, seed, bareRepo, integrationManifest)
 	repoName := strings.TrimSuffix(filepath.Base(bareRepo), ".git")
 
 	wsRoot := t.TempDir()
@@ -235,6 +242,116 @@ func TestIntegrationWebhookToEndAgent(t *testing.T) {
 	}
 }
 
+// TestIntegrationForkPRManifestIgnored proves a fork's pull request cannot
+// supply its own manifest: the working tree checked out for the event is
+// the fork's own head (so the agent can operate on it), but the triggers
+// that fire must come from the manifest committed on the repo's base
+// branch, never from that untrusted checkout.
+func TestIntegrationForkPRManifestIgnored(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	const trustedManifest = `version: "v0"
+triggers:
+  - id: "pr-task"
+    event: "pull_request.opened"
+    agent: "mock"
+    prompt_template: "Legit: {{ .payload.pull_request.title }}"
+`
+	const forkManifest = `version: "v0"
+triggers:
+  - id: "pr-task"
+    event: "pull_request.opened"
+    agent: "mock"
+    prompt_template: "PWNED"
+`
+
+	secret := "test-secret"
+	bareRepo, seed := initBareRepo(t)
+	seedManifest(t, seed, bareRepo, trustedManifest)
+	repoName := strings.TrimSuffix(filepath.Base(bareRepo), ".git")
+
+	// Simulate a fork's PR head: a different manifest and different code,
+	// pushed straight to the PR ref without ever touching main.
+	cmd := exec.Command("git", "checkout", "-b", "attacker-fork")
+	cmd.Dir = seed
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout -b: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(seed, ".barney", "manifest.yaml"), []byte(forkManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAndPush(t, seed, bareRepo, "attacker commit", "attacker-fork:refs/pull/7/head")
+
+	wsRoot := t.TempDir()
+	wsm, err := workspace.NewManager(wsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := &mockHarness{runs: make(chan agent.ExecutionOpts, 1)}
+	registry := agent.NewRegistry()
+	registry.Register(mock)
+
+	orch := &Orchestrator{Workspace: wsm, Registry: registry, EventTimeout: 5 * time.Minute}
+	server := webhook.NewServer(secret, orch)
+	ts := httptest.NewServer(server.HandlerFunc())
+	defer ts.Close()
+
+	payload := []byte(fmt.Sprintf(`{
+  "action": "opened",
+  "pull_request": {"number": 7, "title": "Attacker PR", "base": {"ref": "main"}},
+  "repository": {
+    "id": 1,
+    "name": %q,
+    "full_name": "local/%s",
+    "clone_url": %q,
+    "default_branch": "main",
+    "owner": {"login": "local"}
+  }
+}`, repoName, repoName, bareRepo))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/webhook", strings.NewReader(string(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-GitHub-Delivery", "fork-pr-1")
+	req.Header.Set("X-Hub-Signature-256", signBody(t, secret, payload))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("webhook status = %d, want 200", resp.StatusCode)
+	}
+
+	var runOpts agent.ExecutionOpts
+	select {
+	case runOpts = <-mock.runs:
+	case <-time.After(20 * time.Second):
+		t.Fatal("agent never ran")
+	}
+
+	if runOpts.Prompt != "Legit: Attacker PR" {
+		t.Errorf("prompt = %q, want the trusted (base-branch) manifest's trigger, not the fork's", runOpts.Prompt)
+	}
+
+	// Control: confirm the checked-out working tree really is the fork's
+	// content, so the assertion above isn't just "the fork ref never got
+	// fetched".
+	workspaceDir := filepath.Join(wsRoot, "local", repoName)
+	onDisk, err := os.ReadFile(filepath.Join(workspaceDir, ".barney", "manifest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(onDisk), "PWNED") {
+		t.Fatal("expected the workspace checkout to contain the fork's manifest on disk (control check)")
+	}
+}
+
 func TestAgentEnvForPullRequestUsesPRBase(t *testing.T) {
 	event := &webhook.NormalizedEvent{
 		EventType:     webhook.EventPullRequest,
@@ -258,7 +375,8 @@ func TestAgentEnvForPullRequestUsesPRBase(t *testing.T) {
 		PullRef:       "pull/7/head",
 	}
 
-	env := agentEnvFor(event, ev, "barney/pull_request-d-1")
+	baseBranch := baseBranchFor(event, ev.DefaultBranch)
+	env := agentEnvFor(event, ev, "barney/pull_request-d-1", baseBranch)
 	if got := env["BARNEY_BASE_BRANCH"]; got != "develop" {
 		t.Errorf("BARNEY_BASE_BRANCH = %q, want develop (PR base)", got)
 	}
