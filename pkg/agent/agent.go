@@ -125,12 +125,30 @@ func (h *OpenCodeHarness) Execute(ctx context.Context, opts ExecutionOpts) (*Exe
 	return res, nil
 }
 
+// Env var names for secrets the daemon holds that the agent must never see.
+// cmd/barney reads its own configuration through these same constants (not
+// through duplicated string literals), so the two can't silently drift out
+// of sync — a new required daemon secret can't be added to config without
+// also appearing here.
+//
+// Everything else in the daemon's environment IS inherited by the agent, by
+// design: opencode (and future harnesses) need arbitrary, Barney-unknown
+// provider credentials — ANTHROPIC_API_KEY, OPENCODE_* settings, whatever a
+// new provider needs next — to flow through without a Barney code change.
+// These three are the exception because they authenticate Barney itself,
+// not the agent.
+const (
+	EnvWebhookSecret = "WEBHOOK_SECRET"
+	EnvAppID         = "APP_ID"
+	EnvAppPrivateKey = "APP_PRIVATE_KEY"
+)
+
 // daemonOnlySecrets are environment variables the agent has no legitimate
 // use for. Prompt injection (an untrusted issue/comment body telling the
 // agent to run "env" or read its own process environment) would otherwise
 // hand an attacker the means to forge webhook deliveries or, worse, mint
 // GitHub App installation tokens for every repo the App can reach.
-var daemonOnlySecrets = []string{"WEBHOOK_SECRET=", "APP_ID=", "APP_PRIVATE_KEY="}
+var daemonOnlySecrets = []string{EnvWebhookSecret + "=", EnvAppID + "=", EnvAppPrivateKey + "="}
 
 // filteredEnviron returns the daemon's environment with daemonOnlySecrets
 // stripped. The agent's own GitHub auth (a short-lived, repo-scoped

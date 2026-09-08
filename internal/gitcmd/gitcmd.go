@@ -51,19 +51,33 @@ func run(ctx context.Context, dir string, extraEnv []string, args ...string) (st
 	return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 }
 
-// AuthEnv returns environment variables that authenticate git-over-HTTPS
-// against GitHub for a single subprocess using token. Exported so callers
-// that need the same auth for a non-git process in the same subprocess
-// invocation (e.g. handing `gh` a GH_TOKEN) can reuse it. Empty for an empty
-// token.
-func AuthEnv(token string) []string {
+// AuthEnvMap returns the git-over-HTTPS auth values for token, keyed by
+// variable name, for callers building a map-shaped environment (e.g. an
+// agent's per-event env) directly instead of formatting and re-parsing a
+// "KEY=VALUE" slice. Empty for an empty token.
+func AuthEnvMap(token string) map[string]string {
 	if token == "" {
 		return nil
 	}
 	b64 := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	return []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraheader",
-		"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + b64,
+	return map[string]string{
+		"GIT_CONFIG_COUNT":   "1",
+		"GIT_CONFIG_KEY_0":   "http.extraheader",
+		"GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic " + b64,
 	}
+}
+
+// AuthEnv returns the same values as AuthEnvMap in exec.Cmd's []string
+// "KEY=VALUE" form, for callers extending a subprocess's environment (e.g.
+// RunAuthed). Empty for an empty token.
+func AuthEnv(token string) []string {
+	m := AuthEnvMap(token)
+	if m == nil {
+		return nil
+	}
+	env := make([]string, 0, len(m))
+	for k, v := range m {
+		env = append(env, k+"="+v)
+	}
+	return env
 }

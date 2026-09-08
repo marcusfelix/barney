@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/deploid/barney/internal/jsonutil"
 )
 
 // EventType is the set of GitHub events Barney ingests.
@@ -163,7 +165,7 @@ func Normalize(eventType EventType, deliveryID string, body []byte) (*Normalized
 	}
 	normalizeEventID(event)
 	normalizeRepo(event)
-	event.InstallationID = numberAt(mapAt(payload, "installation"), "id")
+	event.InstallationID = jsonutil.NumberAt(jsonutil.MapAt(payload, "installation"), "id")
 
 	if event.DefaultBranch == "" {
 		event.DefaultBranch = "main"
@@ -178,7 +180,7 @@ func normalizeEventID(event *NormalizedEvent) {
 	if event.EventID != "" {
 		return
 	}
-	if action := str(event.RawPayload, "action"); action != "" {
+	if action := jsonutil.StringAt(event.RawPayload, "action"); action != "" {
 		event.EventID = action
 	} else {
 		event.EventID = "unknown"
@@ -189,55 +191,24 @@ func normalizeEventID(event *NormalizedEvent) {
 // the owner login (or the login portion of full_name as fallback) and the
 // clone URL (or an html_url-derived one).
 func normalizeRepo(event *NormalizedEvent) {
-	repo := mapAt(event.RawPayload, "repository")
+	repo := jsonutil.MapAt(event.RawPayload, "repository")
 	if repo == nil {
 		return
 	}
-	event.RepoOwner = str(mapAt(repo, "owner"), "login")
+	event.RepoOwner = jsonutil.StringAt(jsonutil.MapAt(repo, "owner"), "login")
 	if event.RepoOwner == "" {
-		if fullName := str(repo, "full_name"); fullName != "" {
+		if fullName := jsonutil.StringAt(repo, "full_name"); fullName != "" {
 			event.RepoOwner = strings.SplitN(fullName, "/", 2)[0]
 		}
 	}
-	event.RepoName = str(repo, "name")
-	event.RepoID = numberAt(repo, "id")
-	event.DefaultBranch = str(repo, "default_branch")
+	event.RepoName = jsonutil.StringAt(repo, "name")
+	event.RepoID = jsonutil.NumberAt(repo, "id")
+	event.DefaultBranch = jsonutil.StringAt(repo, "default_branch")
 
-	event.CloneURL = str(repo, "clone_url")
+	event.CloneURL = jsonutil.StringAt(repo, "clone_url")
 	if event.CloneURL == "" {
-		if htmlURL := str(repo, "html_url"); htmlURL != "" {
+		if htmlURL := jsonutil.StringAt(repo, "html_url"); htmlURL != "" {
 			event.CloneURL = htmlURL + ".git"
 		}
 	}
-}
-
-// str returns the string value at key, or "" when absent or not a string.
-func str(m map[string]interface{}, key string) string {
-	if m == nil {
-		return ""
-	}
-	s, _ := m[key].(string)
-	return s
-}
-
-// numberAt returns the numeric field key as an int64, or 0 when absent.
-// GitHub payloads decode numbers as float64, but the field is accepted as
-// any Go numeric type for callers constructing payloads directly (tests).
-func numberAt(m map[string]interface{}, key string) int64 {
-	switch v := m[key].(type) {
-	case float64:
-		return int64(v)
-	case int64:
-		return v
-	case int:
-		return int64(v)
-	default:
-		return 0
-	}
-}
-
-// mapAt returns the nested object at key, or nil when absent.
-func mapAt(m map[string]interface{}, key string) map[string]interface{} {
-	obj, _ := m[key].(map[string]interface{})
-	return obj
 }

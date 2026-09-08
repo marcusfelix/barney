@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -131,7 +132,7 @@ func TestInstallationTokenMintsAndCaches(t *testing.T) {
 	}
 	a.BaseURL = srv.URL
 
-	tok1, err := a.InstallationToken(t.Context(), 10, 20)
+	tok1, err := a.InstallationToken(t.Context(), 10, 20, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("InstallationToken() error = %v", err)
 	}
@@ -139,7 +140,7 @@ func TestInstallationTokenMintsAndCaches(t *testing.T) {
 		t.Errorf("token = %q, want ghs_test-token", tok1)
 	}
 
-	tok2, err := a.InstallationToken(t.Context(), 10, 20)
+	tok2, err := a.InstallationToken(t.Context(), 10, 20, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("InstallationToken() second call error = %v", err)
 	}
@@ -152,7 +153,7 @@ func TestInstallationTokenMintsAndCaches(t *testing.T) {
 }
 
 func TestInstallationTokenRefreshesNearExpiry(t *testing.T) {
-	srv, hits, _ := newTestServer(t, 1*time.Minute) // inside refreshBefore, forces a re-mint every call
+	srv, hits, _ := newTestServer(t, 1*time.Minute) // shorter than the 5m minValidity below, forces a re-mint every call
 	defer srv.Close()
 
 	a, err := New("app-1", testKeyPEM(t))
@@ -161,14 +162,44 @@ func TestInstallationTokenRefreshesNearExpiry(t *testing.T) {
 	}
 	a.BaseURL = srv.URL
 
-	if _, err := a.InstallationToken(t.Context(), 10, 20); err != nil {
+	if _, err := a.InstallationToken(t.Context(), 10, 20, 5*time.Minute); err != nil {
 		t.Fatalf("InstallationToken() error = %v", err)
 	}
-	if _, err := a.InstallationToken(t.Context(), 10, 20); err != nil {
+	if _, err := a.InstallationToken(t.Context(), 10, 20, 5*time.Minute); err != nil {
 		t.Fatalf("InstallationToken() second call error = %v", err)
 	}
 	if got := atomic.LoadInt32(hits); got != 2 {
-		t.Errorf("server hit %d times, want 2 (near-expiry tokens must not be cached)", got)
+		t.Errorf("server hit %d times, want 2 (tokens shorter-lived than minValidity must not be cached)", got)
+	}
+}
+
+// TestInstallationTokenRespectsMinValidity is the regression test for the
+// bug where a cache hit could hand out a token with less remaining life
+// than the caller (an event) needed, letting it expire mid-run. A token
+// with ~10 minutes left must be reused for a caller that only needs 5
+// minutes, but refreshed for a caller that needs 15.
+func TestInstallationTokenRespectsMinValidity(t *testing.T) {
+	srv, hits, _ := newTestServer(t, 10*time.Minute)
+	defer srv.Close()
+
+	a, err := New("app-1", testKeyPEM(t))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	a.BaseURL = srv.URL
+
+	if _, err := a.InstallationToken(t.Context(), 10, 20, 5*time.Minute); err != nil {
+		t.Fatalf("InstallationToken() error = %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 1 {
+		t.Fatalf("server hit %d times after first mint, want 1", got)
+	}
+
+	if _, err := a.InstallationToken(t.Context(), 10, 20, 15*time.Minute); err != nil {
+		t.Fatalf("InstallationToken() error = %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 2 {
+		t.Errorf("server hit %d times, want 2: a caller needing 15m of validity must not reuse a token with only ~10m left", got)
 	}
 }
 
@@ -182,7 +213,7 @@ func TestInstallationTokenScopesRepositoryIDs(t *testing.T) {
 	}
 	a.BaseURL = srv.URL
 
-	if _, err := a.InstallationToken(t.Context(), 10, 999); err != nil {
+	if _, err := a.InstallationToken(t.Context(), 10, 999, 5*time.Minute); err != nil {
 		t.Fatalf("InstallationToken() error = %v", err)
 	}
 
@@ -206,10 +237,10 @@ func TestInstallationTokenDifferentReposDoNotShareCache(t *testing.T) {
 	}
 	a.BaseURL = srv.URL
 
-	if _, err := a.InstallationToken(t.Context(), 10, 1); err != nil {
+	if _, err := a.InstallationToken(t.Context(), 10, 1, 5*time.Minute); err != nil {
 		t.Fatalf("InstallationToken() error = %v", err)
 	}
-	if _, err := a.InstallationToken(t.Context(), 10, 2); err != nil {
+	if _, err := a.InstallationToken(t.Context(), 10, 2, 5*time.Minute); err != nil {
 		t.Fatalf("InstallationToken() error = %v", err)
 	}
 	if got := atomic.LoadInt32(hits); got != 2 {
@@ -230,7 +261,78 @@ func TestMintInstallationTokenErrorStatus(t *testing.T) {
 	}
 	a.BaseURL = srv.URL
 
-	if _, err := a.InstallationToken(t.Context(), 10, 20); err == nil {
+	if _, err := a.InstallationToken(t.Context(), 10, 20, 5*time.Minute); err == nil {
 		t.Error("expected error on non-201 response")
+	}
+}
+
+// TestInstallationTokenRejectsEmptyToken is the regression test for the bug
+// where a 201 response with an empty/missing token field was treated as
+// success, silently degrading auth for every subsequent git/gh call.
+func TestInstallationTokenRejectsEmptyToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(installationTokenResponse{ExpiresAt: time.Now().Add(time.Hour)})
+	}))
+	defer srv.Close()
+
+	a, err := New("app-1", testKeyPEM(t))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	a.BaseURL = srv.URL
+
+	if _, err := a.InstallationToken(t.Context(), 10, 20, 5*time.Minute); err == nil {
+		t.Error("expected error when the mint response has an empty token field")
+	}
+}
+
+// TestInstallationTokenDedupesConcurrentMints is the regression test for the
+// bug where concurrent callers racing a cold cache each independently
+// minted a token instead of sharing one in-flight request.
+func TestInstallationTokenDedupesConcurrentMints(t *testing.T) {
+	var hits int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		<-release // hold the request open so every concurrent caller below overlaps it
+		resp := installationTokenResponse{Token: "ghs_shared-token", ExpiresAt: time.Now().Add(time.Hour)}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	a, err := New("app-1", testKeyPEM(t))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	a.BaseURL = srv.URL
+
+	const n = 10
+	var wg sync.WaitGroup
+	tokens := make([]string, n)
+	errs := make([]error, n)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tokens[i], errs[i] = a.InstallationToken(t.Context(), 10, 20, 5*time.Minute)
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond) // let every goroutine reach the mutex-guarded dedup check
+	close(release)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d: InstallationToken() error = %v", i, err)
+		}
+		if tokens[i] != "ghs_shared-token" {
+			t.Errorf("goroutine %d: token = %q, want ghs_shared-token", i, tokens[i])
+		}
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("server hit %d times, want 1 (concurrent calls for the same key must be deduped)", got)
 	}
 }

@@ -415,10 +415,11 @@ func TestAgentEnvForPullRequestUsesPRBase(t *testing.T) {
 		RepoName:      "demo",
 		DefaultBranch: "main",
 		PullRef:       "pull/7/head",
+		Token:         "tok-abc",
 	}
 
 	baseBranch := baseBranchFor(event, ev.DefaultBranch)
-	env := agentEnvFor(event, ev, "barney/pull_request-d-1", baseBranch, "tok-abc")
+	env := agentEnvFor(event, ev, "barney/pull_request-d-1", baseBranch)
 	if got := env["BARNEY_BASE_BRANCH"]; got != "develop" {
 		t.Errorf("BARNEY_BASE_BRANCH = %q, want develop (PR base)", got)
 	}
@@ -503,6 +504,27 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 	if cfg.EventTimeout != 45*time.Minute {
 		t.Errorf("EventTimeout = %v, want 45m", cfg.EventTimeout)
+	}
+}
+
+// TestLoadConfigTrimsAppPrivateKeyWhitespace is the regression test for the
+// bug where a trailing newline in APP_PRIVATE_KEY (e.g. from `$(cat file)`,
+// a secret store, or a manually-edited .env) failed to decode even though
+// the underlying key material was valid.
+func TestLoadConfigTrimsAppPrivateKeyWhitespace(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("WEBHOOK_SECRET", "s3cret")
+	t.Setenv("APP_ID", "123456")
+	t.Setenv("APP_PRIVATE_KEY", "  "+testAppPrivateKeyB64+"\n")
+	os.Args = []string{"barney"}
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v, want whitespace around APP_PRIVATE_KEY to be tolerated", err)
+	}
+	if string(cfg.AppPrivateKey) != "fake-key" {
+		t.Errorf("AppPrivateKey = %q, want decoded %q", cfg.AppPrivateKey, "fake-key")
 	}
 }
 

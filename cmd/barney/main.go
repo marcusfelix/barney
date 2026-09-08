@@ -17,6 +17,7 @@ import (
 
 	"github.com/deploid/barney/internal/ghapp"
 	"github.com/deploid/barney/internal/gitcmd"
+	"github.com/deploid/barney/internal/jsonutil"
 	"github.com/deploid/barney/pkg/agent"
 	"github.com/deploid/barney/pkg/manifest"
 	"github.com/deploid/barney/pkg/webhook"
@@ -55,10 +56,10 @@ func envOrFlag(fs *flag.FlagSet, flagName, envName, def, usage string) *string {
 func LoadConfig() (*Config, error) {
 	fs := flag.NewFlagSet("barney", flag.ExitOnError)
 	port := envOrFlag(fs, "port", "PORT", "8080", "HTTP listen port")
-	secret := fs.String("webhook-secret", os.Getenv("WEBHOOK_SECRET"), "GitHub webhook HMAC secret (required)")
+	secret := fs.String("webhook-secret", os.Getenv(agent.EnvWebhookSecret), "GitHub webhook HMAC secret (required)")
 	root := envOrFlag(fs, "workspace-root", "WORKSPACE_ROOT", "/var/lib/barney/workspaces", "Workspace storage root")
-	appID := fs.String("app-id", os.Getenv("APP_ID"), "GitHub App ID (required)")
-	appKeyB64 := fs.String("app-private-key", os.Getenv("APP_PRIVATE_KEY"), "Base64-encoded PEM GitHub App private key (required)")
+	appID := fs.String("app-id", os.Getenv(agent.EnvAppID), "GitHub App ID (required)")
+	appKeyB64 := fs.String("app-private-key", os.Getenv(agent.EnvAppPrivateKey), "Base64-encoded PEM GitHub App private key (required)")
 	timeoutStr := envOrFlag(fs, "event-timeout", "EVENT_TIMEOUT", "30m", "Per-event processing timeout (Go duration)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
@@ -89,7 +90,10 @@ func LoadConfig() (*Config, error) {
 	if *appKeyB64 == "" {
 		return nil, fmt.Errorf("--app-private-key / APP_PRIVATE_KEY is required")
 	}
-	key, err := base64.StdEncoding.DecodeString(*appKeyB64)
+	// Trim whitespace: a trailing newline (common from `$(cat file)`,
+	// secret-store injection, or a manually-edited .env) would otherwise
+	// fail decoding even though the underlying key is valid.
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(*appKeyB64))
 	if err != nil {
 		return nil, fmt.Errorf("--app-private-key / APP_PRIVATE_KEY: invalid base64: %w", err)
 	}
@@ -139,17 +143,18 @@ func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 		log.Printf("event %s %s missing installation/repository id (not delivered via a GitHub App install?); skipping", ev.EventType, ev.EventID)
 		return
 	}
-	token, err := o.Auth.InstallationToken(ctx, event.InstallationID, event.RepoID)
+	token, err := o.Auth.InstallationToken(ctx, event.InstallationID, event.RepoID, timeout)
 	if err != nil {
 		log.Printf("mint installation token for %s/%s: %v", ev.RepoOwner, ev.RepoName, err)
 		return
 	}
+	ev.Token = token
 
 	lock := o.Workspace.LockFor(ev)
 	lock.Lock()
 	defer lock.Unlock()
 
-	path, branch, err := o.Workspace.Setup(ctx, ev, token)
+	path, branch, err := o.Workspace.Setup(ctx, ev)
 	if err != nil {
 		log.Printf("workspace setup failed for %s/%s: %v", ev.RepoOwner, ev.RepoName, err)
 		return
@@ -174,14 +179,14 @@ func (o *Orchestrator) HandleEvent(event *webhook.NormalizedEvent) {
 		return
 	}
 
-	o.runTriggers(ctx, matched, event, ev, path, branch, baseBranch, token)
+	o.runTriggers(ctx, matched, event, ev, path, branch, baseBranch)
 	log.Printf("event %s %s complete; delivery is up to the agent", event.EventType, event.EventID)
 }
 
 // runTriggers executes each matched trigger's agent sequentially in the event
 // workspace with the BARNEY_* environment contract in place.
-func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, ev workspace.Event, path, branch, baseBranch, token string) {
-	env := agentEnvFor(event, ev, branch, baseBranch, token)
+func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.MatchedTrigger, event *webhook.NormalizedEvent, ev workspace.Event, path, branch, baseBranch string) {
+	env := agentEnvFor(event, ev, branch, baseBranch)
 	for _, mt := range matched {
 		h, err := o.Registry.Get(mt.Trigger.Agent)
 		if err != nil {
@@ -201,20 +206,19 @@ func (o *Orchestrator) runTriggers(ctx context.Context, matched []manifest.Match
 
 // agentEnvFor builds the environment handed to every agent process: the
 // BARNEY_* context a bash-driven workflow needs, plus GitHub auth scoped to
-// this one event. Unlike a static PAT, the installation token is per-event
-// and short-lived, so it's injected directly here rather than left for the
-// agent to inherit from the daemon's ambient environment.
-func agentEnvFor(event *webhook.NormalizedEvent, ev workspace.Event, branch, baseBranch, token string) map[string]string {
+// this one event (ev.Token). Unlike a static PAT, the installation token is
+// per-event and short-lived, so it's injected directly here rather than
+// left for the agent to inherit from the daemon's ambient environment.
+func agentEnvFor(event *webhook.NormalizedEvent, ev workspace.Event, branch, baseBranch string) map[string]string {
 	env := map[string]string{
 		"BARNEY_EVENT_TYPE":  string(event.EventType),
 		"BARNEY_EVENT_ID":    event.EventID,
 		"BARNEY_REPO":        ev.RepoOwner + "/" + ev.RepoName,
 		"BARNEY_BRANCH":      branch,
 		"BARNEY_BASE_BRANCH": baseBranch,
-		"GH_TOKEN":           token,
+		"GH_TOKEN":           ev.Token,
 	}
-	for _, kv := range gitcmd.AuthEnv(token) {
-		k, v, _ := strings.Cut(kv, "=")
+	for k, v := range gitcmd.AuthEnvMap(ev.Token) {
 		env[k] = v
 	}
 	return env
@@ -225,27 +229,6 @@ func isPullEvent(t webhook.EventType) bool {
 	return t == webhook.EventPullRequest || t == webhook.EventPullRequestReviewComment
 }
 
-// mapAt returns the nested object at key, or nil when absent.
-func mapAt(m map[string]interface{}, key string) map[string]interface{} {
-	obj, _ := m[key].(map[string]interface{})
-	return obj
-}
-
-// numberAt returns the numeric field key as an int, or 0 when absent. It
-// accepts both float64 (JSON-decoded payloads) and native Go numbers.
-func numberAt(m map[string]interface{}, key string) int {
-	switch v := m[key].(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	case int64:
-		return int(v)
-	default:
-		return 0
-	}
-}
-
 // pullRefFor extracts a pull request ref (refs/pull/<n>/head) for
 // pull_request-flavored events so agents operate on the PR's code. Returns
 // "" for other events.
@@ -253,7 +236,7 @@ func pullRefFor(event *webhook.NormalizedEvent) string {
 	if !isPullEvent(event.EventType) {
 		return ""
 	}
-	if n := numberAt(mapAt(event.RawPayload, "pull_request"), "number"); n > 0 {
+	if n := jsonutil.NumberAt(jsonutil.MapAt(event.RawPayload, "pull_request"), "number"); n > 0 {
 		return fmt.Sprintf("pull/%d/head", n)
 	}
 	return ""
@@ -266,7 +249,7 @@ func baseBranchFor(event *webhook.NormalizedEvent, defaultBranch string) string 
 	if !isPullEvent(event.EventType) {
 		return defaultBranch
 	}
-	base := mapAt(mapAt(event.RawPayload, "pull_request"), "base")
+	base := jsonutil.MapAt(jsonutil.MapAt(event.RawPayload, "pull_request"), "base")
 	if ref, ok := base["ref"].(string); ok && ref != "" {
 		return ref
 	}

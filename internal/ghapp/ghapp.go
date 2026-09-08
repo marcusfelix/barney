@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,9 +29,6 @@ const (
 	// jwtTTL is the App-level JWT lifetime. GitHub allows at most 10 minutes;
 	// this leaves margin against clock drift between us and GitHub.
 	jwtTTL = 9 * time.Minute
-	// refreshBefore is how far ahead of expiry a cached installation token is
-	// considered stale and re-minted.
-	refreshBefore = 5 * time.Minute
 )
 
 // AppAuth mints GitHub App installation tokens scoped to one repository at a
@@ -44,13 +42,22 @@ type AppAuth struct {
 	// BaseURL defaults to the public GitHub API and exists for tests.
 	BaseURL string
 
-	mu    sync.Mutex
-	cache map[string]cachedToken
+	mu       sync.Mutex
+	cache    map[string]cachedToken
+	inFlight map[string]*mintCall
 }
 
 type cachedToken struct {
 	token  string
 	expiry time.Time
+}
+
+// mintCall lets concurrent InstallationToken calls for the same key share
+// one in-flight mint instead of each independently hitting GitHub's API.
+type mintCall struct {
+	done  chan struct{}
+	token string
+	err   error
 }
 
 // New creates an AppAuth from an App ID and a PEM-encoded RSA private key
@@ -83,33 +90,62 @@ func parsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 }
 
 // InstallationToken returns a token scoped to a single repository within an
-// installation, minting (or refreshing) it as needed. Tokens are cached per
-// (installationID, repoID) and reused until close to expiry, so repeated
-// events on the same repo don't each pay for a mint round-trip.
-func (a *AppAuth) InstallationToken(ctx context.Context, installationID, repoID int64) (string, error) {
+// installation, minting (or refreshing) it as needed. minValidity is how
+// long the caller needs the token to stay valid — typically its own
+// processing timeout — so a cached token is only reused if it will still be
+// valid for at least that long; otherwise it's refreshed. This guarantees a
+// caller never receives a token that can expire mid-use, at the cost of the
+// cache being of little help once minValidity approaches the installation
+// token's ~1h GitHub-imposed lifetime.
+//
+// Concurrent calls for the same (installationID, repoID) share one in-flight
+// mint instead of each independently hitting GitHub's API.
+func (a *AppAuth) InstallationToken(ctx context.Context, installationID, repoID int64, minValidity time.Duration) (string, error) {
 	key := fmt.Sprintf("%d/%d", installationID, repoID)
 
 	a.mu.Lock()
-	if c, ok := a.cache[key]; ok && time.Until(c.expiry) > refreshBefore {
+	if c, ok := a.cache[key]; ok && time.Until(c.expiry) > minValidity {
 		a.mu.Unlock()
 		return c.token, nil
 	}
+	if call, ok := a.inFlight[key]; ok {
+		a.mu.Unlock()
+		select {
+		case <-call.done:
+			return call.token, call.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	call := &mintCall{done: make(chan struct{})}
+	if a.inFlight == nil {
+		a.inFlight = make(map[string]*mintCall)
+	}
+	a.inFlight[key] = call
 	a.mu.Unlock()
 
-	jwt, err := a.signJWT()
-	if err != nil {
-		return "", fmt.Errorf("sign app jwt: %w", err)
-	}
-	token, expiry, err := a.mintInstallationToken(ctx, jwt, installationID, repoID)
-	if err != nil {
-		return "", err
-	}
+	token, expiry, err := a.mint(ctx, installationID, repoID)
 
 	a.mu.Lock()
-	a.cache[key] = cachedToken{token: token, expiry: expiry}
+	delete(a.inFlight, key)
+	if err == nil {
+		a.cache[key] = cachedToken{token: token, expiry: expiry}
+	}
 	a.mu.Unlock()
 
-	return token, nil
+	call.token, call.err = token, err
+	close(call.done)
+
+	return token, err
+}
+
+// mint signs a fresh App JWT and exchanges it for a new installation token.
+func (a *AppAuth) mint(ctx context.Context, installationID, repoID int64) (string, time.Time, error) {
+	jwt, err := a.signJWT()
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("sign app jwt: %w", err)
+	}
+	return a.mintInstallationToken(ctx, jwt, installationID, repoID)
 }
 
 // signJWT builds and signs the App-level JWT GitHub requires to authenticate
@@ -185,6 +221,9 @@ func (a *AppAuth) mintInstallationToken(ctx context.Context, jwt string, install
 	var parsed installationTokenResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return "", time.Time{}, fmt.Errorf("parse installation token response: %w", err)
+	}
+	if strings.TrimSpace(parsed.Token) == "" {
+		return "", time.Time{}, fmt.Errorf("mint installation token: response had no token")
 	}
 	return parsed.Token, parsed.ExpiresAt, nil
 }

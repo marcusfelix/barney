@@ -36,10 +36,11 @@ func TestAuthEnv(t *testing.T) {
 	if len(env) != 3 {
 		t.Fatalf("len(AuthEnv) = %d, want 3", len(env))
 	}
-	if !strings.Contains(env[2], "AUTHORIZATION: basic ") {
-		t.Errorf("extraheader = %q, want basic auth header", env[2])
+	joined := strings.Join(env, " ")
+	if !strings.Contains(joined, "AUTHORIZATION: basic ") {
+		t.Errorf("AuthEnv = %v, want a basic auth header", env)
 	}
-	if strings.Contains(strings.Join(env, " "), "tok") {
+	if strings.Contains(joined, "tok") {
 		t.Error("token must only appear base64-encoded")
 	}
 }
@@ -47,6 +48,22 @@ func TestAuthEnv(t *testing.T) {
 func TestAuthEnvEmptyToken(t *testing.T) {
 	if env := AuthEnv(""); env != nil {
 		t.Errorf("AuthEnv(\"\") = %v, want nil", env)
+	}
+}
+
+func TestAuthEnvMap(t *testing.T) {
+	m := AuthEnvMap("tok")
+	if m["GIT_CONFIG_COUNT"] != "1" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want 1", m["GIT_CONFIG_COUNT"])
+	}
+	if !strings.Contains(m["GIT_CONFIG_VALUE_0"], "AUTHORIZATION: basic ") {
+		t.Errorf("GIT_CONFIG_VALUE_0 = %q, want a basic auth header", m["GIT_CONFIG_VALUE_0"])
+	}
+	if strings.Contains(m["GIT_CONFIG_VALUE_0"], "tok") {
+		t.Error("token must only appear base64-encoded")
+	}
+	if m2 := AuthEnvMap(""); m2 != nil {
+		t.Errorf("AuthEnvMap(\"\") = %v, want nil", m2)
 	}
 }
 

@@ -68,7 +68,7 @@ func TestSetupClonesAndChecksOutBranch(t *testing.T) {
 	}
 	ev := testEvent(bare, "d-1")
 
-	path, branch, err := mgr.Setup(context.Background(), ev, "")
+	path, branch, err := mgr.Setup(context.Background(), ev)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
@@ -90,11 +90,11 @@ func TestSetupReusesExistingCloneAcrossEvents(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	path1, branch1, err := mgr.Setup(context.Background(), testEvent(bare, "d-1"), "")
+	path1, branch1, err := mgr.Setup(context.Background(), testEvent(bare, "d-1"))
 	if err != nil {
 		t.Fatalf("Setup() first call error = %v", err)
 	}
-	path2, branch2, err := mgr.Setup(context.Background(), testEvent(bare, "d-2"), "")
+	path2, branch2, err := mgr.Setup(context.Background(), testEvent(bare, "d-2"))
 	if err != nil {
 		t.Fatalf("Setup() second call error = %v", err)
 	}
@@ -114,7 +114,7 @@ func TestSetupCleansUntrackedFilesLeftByPreviousEvent(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	path, _, err := mgr.Setup(context.Background(), testEvent(bare, "d-1"), "")
+	path, _, err := mgr.Setup(context.Background(), testEvent(bare, "d-1"))
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestSetupCleansUntrackedFilesLeftByPreviousEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := mgr.Setup(context.Background(), testEvent(bare, "d-2"), ""); err != nil {
+	if _, _, err := mgr.Setup(context.Background(), testEvent(bare, "d-2")); err != nil {
 		t.Fatalf("Setup() second call error = %v", err)
 	}
 	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
@@ -150,7 +150,7 @@ func TestSetupUsesPullRefWhenPresent(t *testing.T) {
 	ev.EventType = "pull_request"
 	ev.PullRef = "pull/9/head"
 
-	path, _, err := mgr.Setup(context.Background(), ev, "")
+	path, _, err := mgr.Setup(context.Background(), ev)
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
@@ -160,6 +160,26 @@ func TestSetupUsesPullRefWhenPresent(t *testing.T) {
 	}
 	if string(content) != "pr-head\n" {
 		t.Errorf("marker.txt = %q, want the PR ref's content, not the default branch's", content)
+	}
+}
+
+// TestSetupFailsWhenPullRefFetchFails is the regression test for the bug
+// where a failed pull-ref fetch (e.g. an expired auth token, or any other
+// transient error) was silently swallowed and Setup fell back to checking
+// out the default branch instead — reporting success while the agent would
+// have run against the wrong code.
+func TestSetupFailsWhenPullRefFetchFails(t *testing.T) {
+	bare := initBareRepo(t)
+	mgr, err := NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	ev := testEvent(bare, "d-1")
+	ev.EventType = "pull_request"
+	ev.PullRef = "pull/404/head" // never pushed to the bare repo
+
+	if _, _, err := mgr.Setup(context.Background(), ev); err == nil {
+		t.Error("expected Setup() to fail when the pull ref can't be fetched, not silently fall back to the default branch")
 	}
 }
 
