@@ -3,8 +3,13 @@ package main
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,10 +20,39 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deploid/barney/internal/ghapp"
 	"github.com/deploid/barney/pkg/agent"
 	"github.com/deploid/barney/pkg/webhook"
 	"github.com/deploid/barney/pkg/workspace"
 )
+
+// testAppAuth returns a *ghapp.AppAuth pointed at a stub installation-token
+// endpoint, so tests can exercise the full auth-minting path without calling
+// the real GitHub API.
+func testAppAuth(t *testing.T) *ghapp.AppAuth {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":      "ghs_test-installation-token",
+			"expires_at": time.Now().Add(time.Hour),
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	auth, err := ghapp.New("test-app", pemBytes)
+	if err != nil {
+		t.Fatalf("ghapp.New() error = %v", err)
+	}
+	auth.BaseURL = srv.URL
+	return auth
+}
 
 const deliveryID = "6f1a2b3c-1111-2222-3333-444455556666"
 
@@ -153,6 +187,7 @@ func TestIntegrationWebhookToEndAgent(t *testing.T) {
 	orch := &Orchestrator{
 		Workspace:    wsm,
 		Registry:     registry,
+		Auth:         testAppAuth(t),
 		EventTimeout: 5 * time.Minute,
 	}
 
@@ -162,6 +197,7 @@ func TestIntegrationWebhookToEndAgent(t *testing.T) {
 
 	payload := []byte(fmt.Sprintf(`{
   "action": "opened",
+  "installation": {"id": 55},
   "issue": {"id": 99, "number": 7, "title": "Integration task", "labels": [{"name": "agent-task"}]},
   "repository": {
     "id": 1,
@@ -224,6 +260,11 @@ func TestIntegrationWebhookToEndAgent(t *testing.T) {
 		if got := run.Env[k]; got != want {
 			t.Errorf("agent env %s = %q, want %q", k, got, want)
 		}
+	}
+
+	// The minted installation token (not a static PAT) must reach the agent.
+	if got := run.Env["GH_TOKEN"]; got != "ghs_test-installation-token" {
+		t.Errorf("agent env GH_TOKEN = %q, want the minted installation token", got)
 	}
 
 	// Event branch is unique per delivery ID and checked out in the workspace.
@@ -293,13 +334,14 @@ triggers:
 	registry := agent.NewRegistry()
 	registry.Register(mock)
 
-	orch := &Orchestrator{Workspace: wsm, Registry: registry, EventTimeout: 5 * time.Minute}
+	orch := &Orchestrator{Workspace: wsm, Registry: registry, Auth: testAppAuth(t), EventTimeout: 5 * time.Minute}
 	server := webhook.NewServer(secret, orch)
 	ts := httptest.NewServer(server.HandlerFunc())
 	defer ts.Close()
 
 	payload := []byte(fmt.Sprintf(`{
   "action": "opened",
+  "installation": {"id": 55},
   "pull_request": {"number": 7, "title": "Attacker PR", "base": {"ref": "main"}},
   "repository": {
     "id": 1,
@@ -373,6 +415,7 @@ func TestAgentEnvForPullRequestUsesPRBase(t *testing.T) {
 		RepoName:      "demo",
 		DefaultBranch: "main",
 		PullRef:       "pull/7/head",
+		Token:         "tok-abc",
 	}
 
 	baseBranch := baseBranchFor(event, ev.DefaultBranch)
@@ -383,20 +426,58 @@ func TestAgentEnvForPullRequestUsesPRBase(t *testing.T) {
 	if got := env["BARNEY_REPO"]; got != "acme/demo" {
 		t.Errorf("BARNEY_REPO = %q, want acme/demo", got)
 	}
+	if got := env["GH_TOKEN"]; got != "tok-abc" {
+		t.Errorf("GH_TOKEN = %q, want tok-abc", got)
+	}
+	if got := env["GIT_CONFIG_COUNT"]; got != "1" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want the git-over-HTTPS auth config for tok-abc", got)
+	}
 	if got := pullRefFor(event); got != "pull/7/head" {
 		t.Errorf("pullRefFor() = %q, want pull/7/head", got)
 	}
 }
 
+// testAppPrivateKeyB64 is a base64-encoded value LoadConfig accepts as an
+// App private key: LoadConfig only checks it's valid base64 (the PEM/RSA
+// structure is parsed later by ghapp.New), so any decodable string works.
+const testAppPrivateKeyB64 = "ZmFrZS1rZXk=" // base64("fake-key")
+
 func TestLoadConfigRequiresSecrets(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	t.Setenv("WEBHOOK_SECRET", "")
-	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("APP_ID", "")
+	t.Setenv("APP_PRIVATE_KEY", "")
 	t.Setenv("EVENT_TIMEOUT", "")
 	os.Args = []string{"barney"}
 	if _, err := LoadConfig(); err == nil {
-		t.Error("expected error when webhook secret and token are missing")
+		t.Error("expected error when webhook secret and app credentials are missing")
+	}
+}
+
+func TestLoadConfigRequiresAppPrivateKey(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("WEBHOOK_SECRET", "s3cret")
+	t.Setenv("APP_ID", "123456")
+	t.Setenv("APP_PRIVATE_KEY", "")
+	t.Setenv("EVENT_TIMEOUT", "")
+	os.Args = []string{"barney"}
+	if _, err := LoadConfig(); err == nil {
+		t.Error("expected error when APP_PRIVATE_KEY is missing")
+	}
+}
+
+func TestLoadConfigInvalidAppPrivateKeyBase64(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("WEBHOOK_SECRET", "s3cret")
+	t.Setenv("APP_ID", "123456")
+	t.Setenv("APP_PRIVATE_KEY", "not-valid-base64!!!")
+	t.Setenv("EVENT_TIMEOUT", "")
+	os.Args = []string{"barney"}
+	if _, err := LoadConfig(); err == nil {
+		t.Error("expected error for non-base64 APP_PRIVATE_KEY")
 	}
 }
 
@@ -404,7 +485,8 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	t.Setenv("WEBHOOK_SECRET", "s3cret")
-	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	t.Setenv("APP_ID", "123456")
+	t.Setenv("APP_PRIVATE_KEY", testAppPrivateKeyB64)
 	t.Setenv("PORT", "9090")
 	t.Setenv("WORKSPACE_ROOT", t.TempDir())
 	t.Setenv("EVENT_TIMEOUT", "45m")
@@ -414,11 +496,35 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	if cfg.WebhookSecret != "s3cret" || cfg.GitHubToken != "ghp_test" || cfg.Port != "9090" {
+	if cfg.WebhookSecret != "s3cret" || cfg.AppID != "123456" || cfg.Port != "9090" {
 		t.Errorf("cfg = %+v", cfg)
+	}
+	if string(cfg.AppPrivateKey) != "fake-key" {
+		t.Errorf("AppPrivateKey = %q, want decoded %q", cfg.AppPrivateKey, "fake-key")
 	}
 	if cfg.EventTimeout != 45*time.Minute {
 		t.Errorf("EventTimeout = %v, want 45m", cfg.EventTimeout)
+	}
+}
+
+// TestLoadConfigTrimsAppPrivateKeyWhitespace is the regression test for the
+// bug where a trailing newline in APP_PRIVATE_KEY (e.g. from `$(cat file)`,
+// a secret store, or a manually-edited .env) failed to decode even though
+// the underlying key material was valid.
+func TestLoadConfigTrimsAppPrivateKeyWhitespace(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("WEBHOOK_SECRET", "s3cret")
+	t.Setenv("APP_ID", "123456")
+	t.Setenv("APP_PRIVATE_KEY", "  "+testAppPrivateKeyB64+"\n")
+	os.Args = []string{"barney"}
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v, want whitespace around APP_PRIVATE_KEY to be tolerated", err)
+	}
+	if string(cfg.AppPrivateKey) != "fake-key" {
+		t.Errorf("AppPrivateKey = %q, want decoded %q", cfg.AppPrivateKey, "fake-key")
 	}
 }
 
@@ -426,10 +532,24 @@ func TestLoadConfigInvalidTimeout(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	t.Setenv("WEBHOOK_SECRET", "s")
-	t.Setenv("GITHUB_TOKEN", "t")
+	t.Setenv("APP_ID", "123456")
+	t.Setenv("APP_PRIVATE_KEY", testAppPrivateKeyB64)
 	t.Setenv("EVENT_TIMEOUT", "not-a-duration")
 	os.Args = []string{"barney"}
 	if _, err := LoadConfig(); err == nil {
 		t.Error("expected error for invalid EVENT_TIMEOUT")
+	}
+}
+
+func TestLoadConfigTimeoutExceedsAppTokenLifetime(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("WEBHOOK_SECRET", "s")
+	t.Setenv("APP_ID", "123456")
+	t.Setenv("APP_PRIVATE_KEY", testAppPrivateKeyB64)
+	t.Setenv("EVENT_TIMEOUT", "2h")
+	os.Args = []string{"barney"}
+	if _, err := LoadConfig(); err == nil {
+		t.Error("expected error for EVENT_TIMEOUT exceeding the 1h installation token lifetime")
 	}
 }

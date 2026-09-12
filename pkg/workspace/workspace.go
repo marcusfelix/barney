@@ -30,6 +30,9 @@ type Event struct {
 	// event branch should be based on instead of the default branch. Used
 	// for pull_request events so agents operate on the PR's code.
 	PullRef string
+	// Token authenticates the clone/fetch calls that talk to the remote; it
+	// is never written to disk or to the workspace's on-disk git config.
+	Token string
 }
 
 // Manager provisions and locks repository workspaces under a root directory.
@@ -91,7 +94,10 @@ func (m *Manager) Setup(ctx context.Context, ev Event) (path string, branch stri
 		return path, branch, err
 	}
 
-	startPoints := m.fetchStartPoints(ctx, ev, path)
+	startPoints, err := m.fetchStartPoints(ctx, ev, path)
+	if err != nil {
+		return path, branch, err
+	}
 	for _, sp := range startPoints {
 		// -B creates or resets the branch at the start point; -f discards
 		// modifications left behind by previous (possibly failed) events.
@@ -110,7 +116,7 @@ func (m *Manager) Setup(ctx context.Context, ev Event) (path string, branch stri
 // from a clean slate instead of a poisoned workspace.
 func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
-		if _, err := gitcmd.Run(ctx, path, "fetch", "origin"); err != nil {
+		if _, err := gitcmd.RunAuthed(ctx, path, ev.Token, "fetch", "origin"); err != nil {
 			return fmt.Errorf("fetch origin: %w", err)
 		}
 		return nil
@@ -122,7 +128,7 @@ func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create workspace parent dir: %w", err)
 	}
-	if _, err := gitcmd.Run(ctx, "", "clone", ev.CloneURL, path); err != nil {
+	if _, err := gitcmd.RunAuthed(ctx, "", ev.Token, "clone", ev.CloneURL, path); err != nil {
 		if rmErr := os.RemoveAll(path); rmErr != nil {
 			log.Printf("[workspace] failed to clean up partial clone at %s: %v", path, rmErr)
 		}
@@ -133,17 +139,18 @@ func (m *Manager) syncRemote(ctx context.Context, ev Event, path string) error {
 
 // fetchStartPoints returns candidate refs for the event branch, most
 // specific first: a fetched pull ref, then the default branch (remote and
-// local). On pull-ref fetch failure it falls back to the default branch.
-func (m *Manager) fetchStartPoints(ctx context.Context, ev Event, path string) []string {
-	var startPoints []string
-	if ev.PullRef != "" {
-		if _, err := gitcmd.Run(ctx, path, "fetch", "origin", ev.PullRef); err != nil {
-			log.Printf("[workspace] failed to fetch %s, falling back to %s: %v", ev.PullRef, ev.DefaultBranch, err)
-		} else {
-			startPoints = append(startPoints, "FETCH_HEAD")
-		}
+// local). A PR-flavored event whose pull ref fails to fetch is an error, not
+// a fallback: silently checking out the default branch instead would run
+// the agent against the wrong code (or, if the failure is an expired auth
+// token, mask that failure as if the event succeeded).
+func (m *Manager) fetchStartPoints(ctx context.Context, ev Event, path string) ([]string, error) {
+	if ev.PullRef == "" {
+		return []string{"origin/" + ev.DefaultBranch, ev.DefaultBranch}, nil
 	}
-	return append(startPoints, "origin/"+ev.DefaultBranch, ev.DefaultBranch)
+	if _, err := gitcmd.RunAuthed(ctx, path, ev.Token, "fetch", "origin", ev.PullRef); err != nil {
+		return nil, fmt.Errorf("fetch pull ref %s: %w", ev.PullRef, err)
+	}
+	return []string{"FETCH_HEAD"}, nil
 }
 
 // sanitizeBranchSegment makes a string safe for use as a git branch segment.

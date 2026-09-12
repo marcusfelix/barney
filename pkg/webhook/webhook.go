@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/deploid/barney/internal/jsonutil"
 )
 
 // EventType is the set of GitHub events Barney ingests.
@@ -39,12 +41,19 @@ type NormalizedEvent struct {
 	EventType EventType
 	// EventID is the X-GitHub-Delivery header value, GitHub's unique
 	// identifier for a webhook delivery.
-	EventID       string
-	RepoOwner     string
-	RepoName      string
-	CloneURL      string
-	DefaultBranch string
-	RawPayload    map[string]interface{}
+	EventID   string
+	RepoOwner string
+	RepoName  string
+	// RepoID is the numeric GitHub repository ID (payload.repository.id),
+	// used to scope a minted GitHub App installation token to this repo.
+	RepoID int64
+	// InstallationID is the GitHub App installation this event was
+	// delivered for (payload.installation.id). Zero when the webhook wasn't
+	// delivered on behalf of an App installation.
+	InstallationID int64
+	CloneURL       string
+	DefaultBranch  string
+	RawPayload     map[string]interface{}
 }
 
 // Handler processes normalized events.
@@ -156,6 +165,7 @@ func Normalize(eventType EventType, deliveryID string, body []byte) (*Normalized
 	}
 	normalizeEventID(event)
 	normalizeRepo(event)
+	event.InstallationID = jsonutil.NumberAt(jsonutil.MapAt(payload, "installation"), "id")
 
 	if event.DefaultBranch == "" {
 		event.DefaultBranch = "main"
@@ -170,7 +180,7 @@ func normalizeEventID(event *NormalizedEvent) {
 	if event.EventID != "" {
 		return
 	}
-	if action := str(event.RawPayload, "action"); action != "" {
+	if action := jsonutil.StringAt(event.RawPayload, "action"); action != "" {
 		event.EventID = action
 	} else {
 		event.EventID = "unknown"
@@ -181,38 +191,24 @@ func normalizeEventID(event *NormalizedEvent) {
 // the owner login (or the login portion of full_name as fallback) and the
 // clone URL (or an html_url-derived one).
 func normalizeRepo(event *NormalizedEvent) {
-	repo := mapAt(event.RawPayload, "repository")
+	repo := jsonutil.MapAt(event.RawPayload, "repository")
 	if repo == nil {
 		return
 	}
-	event.RepoOwner = str(mapAt(repo, "owner"), "login")
+	event.RepoOwner = jsonutil.StringAt(jsonutil.MapAt(repo, "owner"), "login")
 	if event.RepoOwner == "" {
-		if fullName := str(repo, "full_name"); fullName != "" {
+		if fullName := jsonutil.StringAt(repo, "full_name"); fullName != "" {
 			event.RepoOwner = strings.SplitN(fullName, "/", 2)[0]
 		}
 	}
-	event.RepoName = str(repo, "name")
-	event.DefaultBranch = str(repo, "default_branch")
+	event.RepoName = jsonutil.StringAt(repo, "name")
+	event.RepoID = jsonutil.NumberAt(repo, "id")
+	event.DefaultBranch = jsonutil.StringAt(repo, "default_branch")
 
-	event.CloneURL = str(repo, "clone_url")
+	event.CloneURL = jsonutil.StringAt(repo, "clone_url")
 	if event.CloneURL == "" {
-		if htmlURL := str(repo, "html_url"); htmlURL != "" {
+		if htmlURL := jsonutil.StringAt(repo, "html_url"); htmlURL != "" {
 			event.CloneURL = htmlURL + ".git"
 		}
 	}
-}
-
-// str returns the string value at key, or "" when absent or not a string.
-func str(m map[string]interface{}, key string) string {
-	if m == nil {
-		return ""
-	}
-	s, _ := m[key].(string)
-	return s
-}
-
-// mapAt returns the nested object at key, or nil when absent.
-func mapAt(m map[string]interface{}, key string) map[string]interface{} {
-	obj, _ := m[key].(map[string]interface{})
-	return obj
 }
