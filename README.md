@@ -248,7 +248,9 @@ Practical guidance:
   deduplicated).
 - No sandboxing: the agent runs with the daemon's full (filtered) environment and network
   access.
-- The opencode CLI is installed at image build time (pin the version for production).
+- The image ships the minimal runtime (git, gh, docker CLI, opencode); dev toolchains
+  (Go, Flutter, ...) are installed by the agent on demand and persist until the container
+  is recreated — the first run needing a toolchain is slower than the rest.
 
 ## Development
 

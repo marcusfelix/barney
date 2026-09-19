@@ -12,14 +12,17 @@ COPY internal ./internal
 COPY pkg ./pkg
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/barney ./cmd/barney
 
-# --- Final stage: toolchain-ready agent runtime ---
-# Debian (glibc) instead of Alpine: the Flutter/Dart SDK does not run on
-# musl, and kits compose with Go + Flutter + Docker. The base image ships
-# the Go toolchain; everything else is added below.
-FROM golang:1.24-bookworm
+# --- Final stage: minimal agent runtime ---
+# Debian (glibc), not Alpine: the Flutter/Dart SDK does not run on musl.
+# No dev toolchains are preinstalled — agents install what a task needs
+# (see base's agent-workflow.md §13) and installs persist across events
+# until the container is recreated, so the box warms up with use. Only
+# what every run needs from the first command is baked in: git, gh, the
+# docker CLI (daemon via the mounted host socket), and opencode.
+FROM debian:12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates curl unzip xz-utils git libstdc++6 \
+    bash ca-certificates curl git unzip xz-utils libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
 # gh from the official apt repo — Debian's own package lags behind.
@@ -39,16 +42,6 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg \
     && apt-get update && apt-get install -y --no-install-recommends \
       docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
-
-# Flutter SDK (stable channel). Web artifacts are pre-cached; the Android
-# toolchain (SDK/NDK/JDK) is deliberately not installed.
-ENV FLUTTER_HOME=/opt/flutter
-RUN git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$FLUTTER_HOME" \
-    && git config --global --add safe.directory "$FLUTTER_HOME" \
-    && "$FLUTTER_HOME/bin/flutter" config --no-analytics \
-    && "$FLUTTER_HOME/bin/flutter" precache --universal --web \
-    && "$FLUTTER_HOME/bin/flutter" --version
-ENV PATH="$FLUTTER_HOME/bin:${PATH}"
 
 # opencode CLI.
 RUN curl -fsSL https://opencode.ai/install | bash
