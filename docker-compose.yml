@@ -15,6 +15,11 @@ services:
       WORKSPACE_ROOT: /var/lib/barney/workspaces
     volumes:
       - barney-workspaces:/var/lib/barney/workspaces
+      # Docker-in-Docker via the host daemon: lets agents build and run
+      # containers (toolchains, verification) without bloating the image.
+      # Tradeoff: the agent effectively has root-level access to the host
+      # Docker daemon — mount only on trusted, single-purpose hosts.
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   barney-workspaces:
